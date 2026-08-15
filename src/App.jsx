@@ -33,6 +33,12 @@ const BRAND_IMAGES = {
 const fallbackImageFor = (category) =>
   category === "الثروة الحيوانية" ? BRAND_IMAGES.fallbackLivestock : BRAND_IMAGES.fallbackAgri;
 
+// ==== التصنيفات الفرعية لكل قسم رئيسي ====
+const SUBCATEGORIES = {
+  "الثروة الحيوانية": ["الإبل", "الأبقار", "الأغنام"],
+  "المنتجات والمحاصيل الزراعية | Produits Agricoles": ["السمسم", "الدخن", "الصمغ العربي", "الفول السوداني", "أخرى"]
+};
+
 // ==== نظام الترجمة لواجهة التطبيق ====
 const translations = {
   ar: {
@@ -56,6 +62,8 @@ const translations = {
     modalTitle: "إضافة عرض تجاري جديد",
     labelTitle: "عنوان العرض (مثال: شحنة صمغ عربي نقي للبيع)",
     labelCategory: "التصنيف الرئيسي",
+    labelSubcategory: "التصنيف الفرعي",
+    subAll: "الكل",
     labelPrice: "السعر الرقمي",
     labelCurrency: "عملة العرض",
     labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
@@ -140,6 +148,8 @@ const translations = {
     modalTitle: "Ajouter une nouvelle offre",
     labelTitle: "Titre de l'offre (ex : Lot de gomme arabique pure à vendre)",
     labelCategory: "Catégorie principale",
+    labelSubcategory: "Sous-catégorie",
+    subAll: "Toutes",
     labelPrice: "Prix",
     labelCurrency: "Devise de l'offre",
     labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
@@ -212,6 +222,7 @@ const initialProducts = [
     id: 1,
     title: "جمال سودانية للتصدير، قطيع مدرب على السفر البري",
     category: "الثروة الحيوانية",
+    subcategory: "الإبل",
     location: "نيالا، السودان",
     desc: "قطيع من الإبل السودانية بحالة صحية جيدة، جاهز للنقل عبر الجنينة نحو الحدود التشادية.",
     price: 9000, currency: "SDG", unit: "رأس",
@@ -222,6 +233,7 @@ const initialProducts = [
     id: 2,
     title: "فول سوداني تشادي ممتاز (خام)",
     category: "المنتجات والمحاصيل الزراعية | Produits Agricoles",
+    subcategory: "الفول السوداني",
     location: "أبشي، تشاد",
     desc: "فول سوداني نقي وعالي الجودة، معبأ في أكياس ومتوفر للبيع بالجملة والتصدير الإقليمي الكلي.",
     price: 35000, currency: "XAF", unit: "شوال",
@@ -237,12 +249,14 @@ export default function App() {
   const [products, setProducts] = useState(initialProducts);
   const [selectedCurrency, setSelectedCurrency] = useState("ORIGINAL");
   const [selectedCategory, setSelectedCategory] = useState("الكل");
+  const [selectedSubcategory, setSelectedSubcategory] = useState("الكل");
   const [searchQuery, setSearchQuery] = useState("");
   const [countryFilter, setCountryFilter] = useState("كل الدول");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newCategory, setNewCategory] = useState("الثروة الحيوانية");
+  const [newSubcategory, setNewSubcategory] = useState(SUBCATEGORIES["الثروة الحيوانية"][0]);
   const [newLocation, setNewLocation] = useState("السودان");
   const [newPrice, setNewPrice] = useState("");
   const [newCurrency, setNewCurrency] = useState("LYD");
@@ -608,6 +622,7 @@ export default function App() {
     const newProduct = {
       title: newTitle,
       category: newCategory,
+      subcategory: newSubcategory,
       location: newLocation,
       desc: newDesc || "-",
       price: parseFloat(newPrice),
@@ -629,13 +644,15 @@ export default function App() {
     }
     setIsModalOpen(false);
     setNewTitle(""); setNewPrice(""); setNewDesc(""); setNewSeller(""); setNewContact(""); setSelectedFiles([]);
+    setNewSubcategory(SUBCATEGORIES[newCategory][0]);
   };
 
   const filteredProducts = products.filter(p => {
     const matchesCategory = selectedCategory === "الكل" || p.category === selectedCategory;
+    const matchesSubcategory = selectedSubcategory === "الكل" || p.subcategory === selectedSubcategory;
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || p.desc.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCountry = countryFilter === "كل الدول" || p.location.includes(countryFilter);
-    return matchesCategory && matchesSearch && matchesCountry;
+    return matchesCategory && matchesSubcategory && matchesSearch && matchesCountry;
   });
 
   const userDisplayLabel = currentUser ? (currentUser.email || currentUser.phoneNumber || "") : "";
@@ -684,7 +701,7 @@ export default function App() {
         {categoryKeys.map((cat, idx) => (
           <button
             key={idx}
-            onClick={() => setSelectedCategory(cat)}
+            onClick={() => { setSelectedCategory(cat); setSelectedSubcategory("الكل"); }}
             style={styles.catCircleBtn}
           >
             <div style={{
@@ -705,6 +722,34 @@ export default function App() {
           </button>
         ))}
       </div>
+
+      {selectedCategory !== "الكل" && (
+        <div style={styles.subChipRow}>
+          <button
+            onClick={() => setSelectedSubcategory("الكل")}
+            style={{
+              ...styles.subChip,
+              backgroundColor: selectedSubcategory === "الكل" ? "#16213A" : "#fff",
+              color: selectedSubcategory === "الكل" ? "#fff" : "#16213A"
+            }}
+          >
+            {t.subAll}
+          </button>
+          {SUBCATEGORIES[selectedCategory].map((sub, idx) => (
+            <button
+              key={idx}
+              onClick={() => setSelectedSubcategory(sub)}
+              style={{
+                ...styles.subChip,
+                backgroundColor: selectedSubcategory === sub ? "#16213A" : "#fff",
+                color: selectedSubcategory === sub ? "#fff" : "#16213A"
+              }}
+            >
+              {sub}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div style={styles.filterRow}>
         <select style={styles.select} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
@@ -732,6 +777,7 @@ export default function App() {
                 <span style={styles.timeBadge}>{product.date}</span>
                 <span style={styles.catLabel}>
                   {product.category === "الثروة الحيوانية" ? t.catLivestock : t.catAgri}
+                  {product.subcategory ? ` · ${product.subcategory}` : ""}
                 </span>
               </div>
 
@@ -906,9 +952,20 @@ export default function App() {
               <input type="text" required style={styles.modalInput} value={newTitle} onChange={e => setNewTitle(e.target.value)} />
 
               <label style={styles.label}>{t.labelCategory}</label>
-              <select style={styles.modalInput} value={newCategory} onChange={e => setNewCategory(e.target.value)}>
+              <select
+                style={styles.modalInput}
+                value={newCategory}
+                onChange={e => { setNewCategory(e.target.value); setNewSubcategory(SUBCATEGORIES[e.target.value][0]); }}
+              >
                 <option value="الثروة الحيوانية">{t.catLivestock}</option>
                 <option value="المنتجات والمحاصيل الزراعية | Produits Agricoles">{t.catAgri}</option>
+              </select>
+
+              <label style={styles.label}>{t.labelSubcategory}</label>
+              <select style={styles.modalInput} value={newSubcategory} onChange={e => setNewSubcategory(e.target.value)}>
+                {SUBCATEGORIES[newCategory].map((sub, idx) => (
+                  <option key={idx} value={sub}>{sub}</option>
+                ))}
               </select>
 
               <div style={{display:'flex', gap:10}}>
@@ -1098,6 +1155,10 @@ const styles = {
   catCircleImg: { width: "100%", height: "100%", objectFit: "cover" },
   catCircleEmoji: { fontSize: "22px" },
   catCircleLabel: { fontSize: "11px", textAlign: "center", lineHeight: "1.2" },
+
+  // ==== شريط التصنيفات الفرعية ====
+  subChipRow: { display: "flex", gap: "6px", marginBottom: "14px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" },
+  subChip: { flexShrink: 0, border: "1px solid #d9cba3", borderRadius: "16px", padding: "6px 14px", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" },
 
   // ==== أزرار المراسلة والاتصال على بطاقة المنتج ====
   chatBtn: { backgroundColor: "#16213A", color: "#fff", border: "none", padding: "6px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
