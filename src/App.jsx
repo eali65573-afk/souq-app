@@ -39,6 +39,21 @@ const SUBCATEGORIES = {
   "المنتجات والمحاصيل الزراعية | Produits Agricoles": ["السمسم", "الدخن", "الصمغ العربي", "الفول السوداني", "أخرى"]
 };
 
+// ==== ترجمة أسماء التصنيفات الفرعية للفرنسية ====
+const SUBCATEGORY_FR = {
+  "الإبل": "Chameaux",
+  "الأبقار": "Bovins",
+  "الأغنام": "Ovins",
+  "السمسم": "Sésame",
+  "الدخن": "Mil",
+  "الصمغ العربي": "Gomme arabique",
+  "الفول السوداني": "Arachide",
+  "أخرى": "Autre"
+};
+
+const displaySubcategory = (sub, language) =>
+  language === 'ar' ? sub : (SUBCATEGORY_FR[sub] || sub);
+
 // ==== نظام الترجمة لواجهة التطبيق ====
 const translations = {
   ar: {
@@ -133,8 +148,8 @@ const translations = {
     countries: "Libye · Tchad · Soudan",
     currencyDefault: "Par défaut",
     catAll: "Tout",
-    catLivestock: "الثروة الحيوانية",
-    catAgri: "المنتجات والمحاصيل الزراعية | Produits Agricoles",
+    catLivestock: "Bétail (élevage)",
+    catAgri: "Produits agricoles",
     countryAll: "Tous les pays",
     countrySudan: "Soudan",
     countryChad: "Tchad",
@@ -745,7 +760,7 @@ export default function App() {
                 color: selectedSubcategory === sub ? "#fff" : "#16213A"
               }}
             >
-              {sub}
+              {displaySubcategory(sub, language)}
             </button>
           ))}
         </div>
@@ -777,7 +792,7 @@ export default function App() {
                 <span style={styles.timeBadge}>{product.date}</span>
                 <span style={styles.catLabel}>
                   {product.category === "الثروة الحيوانية" ? t.catLivestock : t.catAgri}
-                  {product.subcategory ? ` · ${product.subcategory}` : ""}
+                  {product.subcategory ? ` · ${displaySubcategory(product.subcategory, language)}` : ""}
                 </span>
               </div>
 
@@ -964,7 +979,7 @@ export default function App() {
               <label style={styles.label}>{t.labelSubcategory}</label>
               <select style={styles.modalInput} value={newSubcategory} onChange={e => setNewSubcategory(e.target.value)}>
                 {SUBCATEGORIES[newCategory].map((sub, idx) => (
-                  <option key={idx} value={sub}>{sub}</option>
+                  <option key={idx} value={sub}>{displaySubcategory(sub, language)}</option>
                 ))}
               </select>
 
