@@ -231,6 +231,17 @@ const translations = {
 // أسعار الصرف الثابتة مقارنة بالدولار (تحديث 2026)
 const exchangeRates = { "LYD": 4.80, "XAF": 600, "SDG": 650 };
 
+// ==== رموز العملات الصحيحة (مصححة) وأعلام الدول المرتبطة بها ====
+const CURRENCY_FLAG = { LYD: "🇱🇾", XAF: "🇹🇩", SDG: "🇸🇩" };
+const CURRENCY_LABEL = {
+  ar: { LYD: "د.ل", XAF: "ف.ت", SDG: "ج.س" },   // دينار ليبي، فرنك تشادي، جنيه سوداني
+  fr: { LYD: "DL", XAF: "FCFA", SDG: "SDG" }
+};
+const currencyLabel = (code, language) => `${CURRENCY_FLAG[code]} ${CURRENCY_LABEL[language][code]}`;
+
+// ==== أعلام الدول الثلاث ====
+const COUNTRY_FLAG = { "السودان": "🇸🇩", "تشاد": "🇹🇩", "ليبيا": "🇱🇾" };
+
 // البيانات الأولية لبدء التطبيق
 const initialProducts = [
   {
@@ -382,19 +393,18 @@ export default function App() {
   };
   const displayCountry = (key) => {
     if (key === "كل الدول") return t.countryAll;
-    if (key === "السودان") return t.countrySudan;
-    if (key === "تشاد") return t.countryChad;
-    return t.countryLibya;
+    if (key === "السودان") return `${COUNTRY_FLAG["السودان"]} ${t.countrySudan}`;
+    if (key === "تشاد") return `${COUNTRY_FLAG["تشاد"]} ${t.countryChad}`;
+    return `${COUNTRY_FLAG["ليبيا"]} ${t.countryLibya}`;
   };
 
   const formatPrice = (price, fromCurrency) => {
     if (selectedCurrency === "ORIGINAL" || !exchangeRates[selectedCurrency]) {
-      return `${price} ${fromCurrency === "XAF" ? "ف.س" : fromCurrency === "SDG" ? "ج.س" : "د.ل"}`;
+      return `${price} ${currencyLabel(fromCurrency, language)}`;
     }
     const priceInUSD = price / exchangeRates[fromCurrency];
     const convertedPrice = priceInUSD * exchangeRates[selectedCurrency];
-    const label = selectedCurrency === "XAF" ? "ف.س" : selectedCurrency === "SDG" ? "ج.س" : "د.ل";
-    return `${Math.round(convertedPrice).toLocaleString()} ${label}`;
+    return `${Math.round(convertedPrice).toLocaleString()} ${currencyLabel(selectedCurrency, language)}`;
   };
 
   // ==================== دوال المصادقة ====================
@@ -706,9 +716,9 @@ export default function App() {
 
         <div style={styles.currencyBar}>
           <button onClick={() => setSelectedCurrency("ORIGINAL")} style={{...styles.badge, backgroundColor: selectedCurrency === "ORIGINAL" ? "#FFF" : "#E9B824", color: "#000"}}>{t.currencyDefault}</button>
-          <button onClick={() => setSelectedCurrency("LYD")} style={{...styles.badge, backgroundColor: selectedCurrency === "LYD" ? "#FFF" : "#E9B824", color: "#000"}}>د.ل</button>
-          <button onClick={() => setSelectedCurrency("XAF")} style={{...styles.badge, backgroundColor: selectedCurrency === "XAF" ? "#FFF" : "#E9B824", color: "#000"}}>ف.س</button>
-          <button onClick={() => setSelectedCurrency("SDG")} style={{...styles.badge, backgroundColor: selectedCurrency === "SDG" ? "#FFF" : "#E9B824", color: "#000"}}>ج.س</button>
+          <button onClick={() => setSelectedCurrency("LYD")} style={{...styles.badge, backgroundColor: selectedCurrency === "LYD" ? "#FFF" : "#E9B824", color: "#000"}}>{currencyLabel("LYD", language)}</button>
+          <button onClick={() => setSelectedCurrency("XAF")} style={{...styles.badge, backgroundColor: selectedCurrency === "XAF" ? "#FFF" : "#E9B824", color: "#000"}}>{currencyLabel("XAF", language)}</button>
+          <button onClick={() => setSelectedCurrency("SDG")} style={{...styles.badge, backgroundColor: selectedCurrency === "SDG" ? "#FFF" : "#E9B824", color: "#000"}}>{currencyLabel("SDG", language)}</button>
         </div>
       </header>
 
@@ -991,9 +1001,9 @@ export default function App() {
                 <div style={{flex:1}}>
                   <label style={styles.label}>{t.labelCurrency}</label>
                   <select style={styles.modalInput} value={newCurrency} onChange={e => setNewCurrency(e.target.value)}>
-                    <option value="LYD">{t.currencyLYD}</option>
-                    <option value="XAF">{t.currencyXAF}</option>
-                    <option value="SDG">{t.currencySDG}</option>
+                    <option value="LYD">🇱🇾 {t.currencyLYD}</option>
+                    <option value="XAF">🇹🇩 {t.currencyXAF}</option>
+                    <option value="SDG">🇸🇩 {t.currencySDG}</option>
                   </select>
                 </div>
               </div>
