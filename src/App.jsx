@@ -13,6 +13,22 @@ import {
 const CLOUDINARY_CLOUD_NAME = "tqvxulwr";
 const CLOUDINARY_UPLOAD_PRESET = "souq_uploads";
 
+// ==== صور الهوية البصرية للتطبيق ====
+// ملاحظة: هذه الصور تُقرأ من نفس حساب Cloudinary الخاص بالتطبيق (تحت public_id ثابت)
+// لرفعها: Cloudinary Console → Media Library → Upload → استخدم بالضبط أسماء public_id التالية
+const cld = (publicId, w) => `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,c_fill,w_${w}/souq-brand/${publicId}`;
+
+const BRAND_IMAGES = {
+  heroBanner: cld("hero-banner", 1200),       // صورة بانورامية: سوق ماشية/محاصيل بأجواء صحراوية
+  catLivestock: cld("cat-livestock", 200),     // أيقونة تصنيف الثروة الحيوانية (جِمال/أغنام)
+  catAgri: cld("cat-agri", 200),               // أيقونة تصنيف المحاصيل الزراعية (أكياس/حبوب)
+  fallbackLivestock: cld("fallback-livestock", 500), // صورة افتراضية لبطاقة منتج بلا صور (ثروة حيوانية)
+  fallbackAgri: cld("fallback-agri", 500),           // صورة افتراضية لبطاقة منتج بلا صور (محاصيل)
+};
+
+const fallbackImageFor = (category) =>
+  category === "الثروة الحيوانية" ? BRAND_IMAGES.fallbackLivestock : BRAND_IMAGES.fallbackAgri;
+
 // ==== نظام الترجمة لواجهة التطبيق ====
 const translations = {
   ar: {
@@ -413,7 +429,7 @@ export default function App() {
       {/* حاوية reCAPTCHA غير المرئية المطلوبة لتسجيل الدخول بالهاتف */}
       <div id="recaptcha-container"></div>
 
-      <header style={styles.header}>
+      <header style={{...styles.header, backgroundImage: `linear-gradient(180deg, rgba(22,33,58,0.55) 0%, rgba(22,33,58,0.88) 75%, #16213A 100%), url(${BRAND_IMAGES.heroBanner})`}}>
         <div style={styles.headerTop}>
           <h1 style={styles.title}>{t.appTitle}</h1>
           <div style={styles.headerRight}>
@@ -459,6 +475,8 @@ export default function App() {
               color: selectedCategory === cat ? "#fff" : "#000"
             }}
           >
+            {cat === "الثروة الحيوانية" && <img src={BRAND_IMAGES.catLivestock} alt="" style={styles.catIcon} />}
+            {cat === "المنتجات والمحاصيل الزراعية | Produits Agricoles" && <img src={BRAND_IMAGES.catAgri} alt="" style={styles.catIcon} />}
             {displayCategory(cat)}
           </button>
         ))}
@@ -490,17 +508,19 @@ export default function App() {
                 </span>
               </div>
 
-              {product.media && product.media.length > 0 && (
-                <div style={styles.mediaRow}>
-                  {product.media.map((m, idx) => (
+              <div style={styles.mediaRow}>
+                {product.media && product.media.length > 0 ? (
+                  product.media.map((m, idx) => (
                     m.type === "video" ? (
                       <video key={idx} src={m.url} controls style={styles.mediaThumb} />
                     ) : (
                       <img key={idx} src={m.url} alt={product.title} style={styles.mediaThumb} />
                     )
-                  ))}
-                </div>
-              )}
+                  ))
+                ) : (
+                  <img src={fallbackImageFor(product.category)} alt={product.title} style={styles.mediaThumb} />
+                )}
+              </div>
 
               <h3 style={styles.productTitle}>{product.title}</h3>
               <p style={styles.locationText}>{t.locationPrefix} {product.location}</p>
@@ -670,7 +690,7 @@ export default function App() {
 
 const styles = {
   container: { backgroundColor: "#F5EFE6", minHeight: "100vh", padding: "12px", fontFamily: "sans-serif" },
-  header: { backgroundColor: "#16213A", color: "#fff", borderRadius: "12px", padding: "16px", marginBottom: "14px", textAlign: "center" },
+  header: { backgroundColor: "#16213A", backgroundSize: "cover", backgroundPosition: "center", color: "#fff", borderRadius: "12px", padding: "16px", marginBottom: "14px", textAlign: "center" },
   headerTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" },
   headerRight: { display: "flex", alignItems: "center", gap: "8px" },
   langBtn: { background: "rgba(255,255,255,0.15)", color: "#fff", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "16px", padding: "5px 10px", fontSize: "11px", cursor: "pointer" },
@@ -683,7 +703,8 @@ const styles = {
   currencyBar: { display: "flex", gap: "6px", justifyContent: "center", alignItems: "center" },
   badge: { border: "none", padding: "5px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" },
   catToggleRow: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "nowrap", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "6px" },
-  catToggleBtn: { flexShrink: 0, border: "1px solid #d9cba3", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 600 },
+  catToggleBtn: { flexShrink: 0, display: "flex", alignItems: "center", gap: "6px", border: "1px solid #d9cba3", borderRadius: 8, padding: "8px 16px", fontSize: 13.5, fontWeight: 600 },
+  catIcon: { width: "20px", height: "20px", borderRadius: "50%", objectFit: "cover" },
   filterRow: { display: "flex", gap: "8px", marginBottom: "14px" },
   select: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#fff", fontSize: "14px" },
   input: { flex: 2, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px" },
