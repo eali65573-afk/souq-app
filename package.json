@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview"
   },
-  "dependencies": {
+  "dependencies": {"firebase": "^10.14.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
