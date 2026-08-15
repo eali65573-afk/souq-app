@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth } from './firebase';
+import { auth, db } from './firebase';
 import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
@@ -8,6 +8,7 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber
 } from 'firebase/auth';
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
 
 // ==== إعدادات Cloudinary ====
 const CLOUDINARY_CLOUD_NAME = "tqvxulwr";
@@ -235,6 +236,18 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // مزامنة العروض المنشورة مع Firestore فور تحميل التطبيق (تحديث فوري + حفظ دائم)
+  useEffect(() => {
+    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const liveProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setProducts([...liveProducts, ...initialProducts]);
+    }, (err) => {
+      console.error("Firestore sync error:", err);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const categoryKeys = ["الكل", "الثروة الحيوانية", "المنتجات والمحاصيل الزراعية | Produits Agricoles"];
   const countryKeys = ["كل الدول", "السودان", "تشاد", "ليبيا"];
 
@@ -396,7 +409,6 @@ export default function App() {
     }
     const uploadedMedia = await uploadAllFiles();
     const newProduct = {
-      id: Date.now(),
       title: newTitle,
       category: newCategory,
       location: newLocation,
@@ -408,9 +420,16 @@ export default function App() {
       seller: newSeller,
       date: language === 'ar' ? "الآن" : "à l'instant",
       media: uploadedMedia,
-      ownerUid: currentUser ? currentUser.uid : null
+      ownerUid: currentUser ? currentUser.uid : null,
+      createdAt: serverTimestamp()
     };
-    setProducts([newProduct, ...products]);
+    try {
+      await addDoc(collection(db, "products"), newProduct);
+    } catch (err) {
+      console.error("Failed to publish product:", err);
+      alert(language === 'ar' ? "حدث خطأ أثناء نشر العرض، حاول مجددًا." : "Une erreur est survenue lors de la publication.");
+      return;
+    }
     setIsModalOpen(false);
     setNewTitle(""); setNewPrice(""); setNewDesc(""); setNewSeller(""); setNewContact(""); setSelectedFiles([]);
   };
@@ -486,13 +505,16 @@ export default function App() {
         <select style={styles.select} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
           {countryKeys.map((c, i) => <option key={i} value={c}>{displayCountry(c)}</option>)}
         </select>
-        <input
-          type="text"
-          placeholder={t.searchPlaceholder}
-          style={styles.input}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
+        <div style={styles.searchWrap}>
+          <span style={{...styles.searchIcon, [language === 'ar' ? 'right' : 'left']: "10px"}}>🔍</span>
+          <input
+            type="text"
+            placeholder={t.searchPlaceholder}
+            style={{...styles.input, [language === 'ar' ? 'paddingRight' : 'paddingLeft']: "34px", [language === 'ar' ? 'paddingLeft' : 'paddingRight']: "12px"}}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
       </div>
 
       <main style={styles.productList}>
@@ -707,7 +729,9 @@ const styles = {
   catIcon: { width: "20px", height: "20px", borderRadius: "50%", objectFit: "cover" },
   filterRow: { display: "flex", gap: "8px", marginBottom: "14px" },
   select: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#fff", fontSize: "14px" },
-  input: { flex: 2, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px" },
+  input: { flex: 2, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px", width: "100%", boxSizing: "border-box" },
+  searchWrap: { position: "relative", flex: 2, display: "flex", alignItems: "center" },
+  searchIcon: { position: "absolute", fontSize: "14px", opacity: 0.6, pointerEvents: "none" },
   productList: { display: "flex", flexDirection: "column", gap: "12px", paddingBottom: "80px" },
   card: { backgroundColor: "#fff", borderRadius: "12px", padding: "14px", border: "1px solid #e2dcd0", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" },
   cardHeader: { display: "flex", justifyContent: "space-between", marginBottom: "8px" },
