@@ -79,6 +79,7 @@ const translations = {
     labelCategory: "التصنيف الرئيسي",
     labelSubcategory: "التصنيف الفرعي",
     subAll: "الكل",
+    sponsoredTitle: "إعلانات مموّلة",
     labelPrice: "السعر الرقمي",
     labelCurrency: "عملة العرض",
     labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
@@ -165,6 +166,7 @@ const translations = {
     labelCategory: "Catégorie principale",
     labelSubcategory: "Sous-catégorie",
     subAll: "Toutes",
+    sponsoredTitle: "Annonces sponsorisées",
     labelPrice: "Prix",
     labelCurrency: "Devise de l'offre",
     labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
@@ -317,11 +319,23 @@ export default function App() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
+  // ==================== حالة الإعلانات المموّلة ====================
+  const [sponsoredAds, setSponsoredAds] = useState([]);
+
   // متابعة حالة تسجيل الدخول تلقائياً عند تحميل التطبيق
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
     });
+    return () => unsubscribe();
+  }, []);
+
+  // مزامنة الإعلانات المموّلة النشطة (تُدار يدوياً من Firebase Console حالياً)
+  useEffect(() => {
+    const q = query(collection(db, "ads"), where("active", "==", true));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setSponsoredAds(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Ads sync error:", err));
     return () => unsubscribe();
   }, []);
 
@@ -721,6 +735,25 @@ export default function App() {
           <button onClick={() => setSelectedCurrency("SDG")} style={{...styles.badge, backgroundColor: selectedCurrency === "SDG" ? "#FFF" : "#E9B824", color: "#000"}}>{currencyLabel("SDG", language)}</button>
         </div>
       </header>
+
+      {/* ==================== الإعلانات المموّلة (بنفس تصميم بطاقات الأقسام) ==================== */}
+      {sponsoredAds.length > 0 && (
+        <div style={{marginBottom: "14px"}}>
+          <h3 style={styles.sponsoredTitle}>{t.sponsoredTitle}</h3>
+          <div style={styles.sponsoredRow}>
+            {sponsoredAds.map(ad => {
+              const CardTag = ad.linkUrl ? "a" : "div";
+              const linkProps = ad.linkUrl ? { href: ad.linkUrl, target: "_blank", rel: "noopener noreferrer" } : {};
+              return (
+                <CardTag key={ad.id} {...linkProps} style={styles.sponsoredCard}>
+                  <img src={ad.imageUrl} alt={ad.title || ""} style={styles.sponsoredImg} />
+                  <span style={styles.sponsoredLabel}>{ad.title}</span>
+                </CardTag>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={styles.catCircleRow}>
         {categoryKeys.map((cat, idx) => (
@@ -1184,6 +1217,18 @@ const styles = {
   // ==== شريط التصنيفات الفرعية ====
   subChipRow: { display: "flex", gap: "6px", marginBottom: "14px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" },
   subChip: { flexShrink: 0, border: "1px solid #d9cba3", borderRadius: "16px", padding: "6px 14px", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" },
+
+  // ==== الإعلانات المموّلة ====
+  sponsoredTitle: { fontSize: "14px", fontWeight: "bold", color: "#16213A", margin: "0 0 8px 0" },
+  sponsoredRow: { display: "flex", gap: "10px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" },
+  sponsoredCard: {
+    flexShrink: 0, width: "110px", backgroundColor: "#fff", borderRadius: "14px",
+    border: "1px solid #e2dcd0", boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
+    padding: "8px", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+    textDecoration: "none", cursor: "pointer"
+  },
+  sponsoredImg: { width: "94px", height: "70px", objectFit: "cover", borderRadius: "10px", backgroundColor: "#F5EFE6" },
+  sponsoredLabel: { fontSize: "12px", fontWeight: 600, color: "#16213A", textAlign: "center", lineHeight: "1.3" },
 
   // ==== أزرار المراسلة والاتصال على بطاقة المنتج ====
   chatBtn: { backgroundColor: "#16213A", color: "#fff", border: "none", padding: "6px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
