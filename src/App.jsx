@@ -8,7 +8,10 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber
 } from 'firebase/auth';
-import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import {
+  collection, addDoc, onSnapshot, query, orderBy, serverTimestamp,
+  doc, setDoc, getDoc, updateDoc, where, limit
+} from 'firebase/firestore';
 
 // ==== إعدادات Cloudinary ====
 const CLOUDINARY_CLOUD_NAME = "tqvxulwr";
@@ -95,7 +98,26 @@ const translations = {
     authRequiredAlert: "يجب تسجيل الدخول أولاً لنشر عرض جديد.",
     authErrorGeneric: "حدث خطأ. تأكد من صحة البيانات وحاول مجدداً.",
     otpSentMsg: "تم إرسال رمز التحقق إلى هاتفك.",
-    closeBtn: "إغلاق"
+    closeBtn: "إغلاق",
+
+    // === الشريط السفلي والدردشات والإشعارات ===
+    navHome: "الرئيسية",
+    navChats: "دردشاتي",
+    navNotifications: "إشعاراتي",
+    navAccount: "حسابي",
+    chatsTitle: "دردشاتي",
+    notifTitle: "إشعاراتي",
+    noChats: "لا توجد محادثات بعد.",
+    noNotifs: "لا توجد إشعارات جديدة.",
+    messagePlaceholder: "اكتب رسالتك...",
+    sendBtn: "إرسال",
+    contactSellerBtn: "💬 راسل البائع",
+    callSellerBtn: "📞 اتصال",
+    noOwnerAlert: "لا يمكن مراسلة صاحب هذا العرض حالياً، جرّب الاتصال المباشر.",
+    chatRequiresLogin: "يجب تسجيل الدخول أولاً للتواصل مع البائع.",
+    backBtn: "رجوع",
+    newMsgNotif: "رسالة جديدة بخصوص",
+    accountGreeting: "مرحباً"
   },
   fr: {
     appTitle: "Souq Al-Maftouh Régional",
@@ -159,7 +181,25 @@ const translations = {
     authRequiredAlert: "Vous devez vous connecter avant de publier une offre.",
     authErrorGeneric: "Une erreur est survenue. Vérifiez vos informations et réessayez.",
     otpSentMsg: "Le code de vérification a été envoyé à votre téléphone.",
-    closeBtn: "Fermer"
+    closeBtn: "Fermer",
+
+    navHome: "Accueil",
+    navChats: "Messages",
+    navNotifications: "Notifications",
+    navAccount: "Compte",
+    chatsTitle: "Mes messages",
+    notifTitle: "Notifications",
+    noChats: "Aucune conversation pour le moment.",
+    noNotifs: "Aucune nouvelle notification.",
+    messagePlaceholder: "Écrivez votre message...",
+    sendBtn: "Envoyer",
+    contactSellerBtn: "💬 Contacter le vendeur",
+    callSellerBtn: "📞 Appeler",
+    noOwnerAlert: "Impossible de contacter ce vendeur pour le moment, essayez l'appel direct.",
+    chatRequiresLogin: "Vous devez vous connecter pour contacter le vendeur.",
+    backBtn: "Retour",
+    newMsgNotif: "Nouveau message concernant",
+    accountGreeting: "Bonjour"
   }
 };
 
@@ -228,6 +268,15 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
+  // ==================== حالات الدردشات والإشعارات ====================
+  const [isChatListOpen, setIsChatListOpen] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [newMessageText, setNewMessageText] = useState("");
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+
   // متابعة حالة تسجيل الدخول تلقائياً عند تحميل التطبيق
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -247,6 +296,52 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // مزامنة قائمة المحادثات الخاصة بالمستخدم الحالي
+  useEffect(() => {
+    if (!currentUser) { setConversations([]); return; }
+    const q = query(
+      collection(db, "conversations"),
+      where("participants", "array-contains", currentUser.uid)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.lastMessageAt?.seconds || 0) - (a.lastMessageAt?.seconds || 0));
+      setConversations(list);
+    }, (err) => console.error("Conversations sync error:", err));
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // مزامنة إشعارات المستخدم الحالي
+  useEffect(() => {
+    if (!currentUser) { setNotifications([]); return; }
+    const q = query(
+      collection(db, "notifications"),
+      where("userId", "==", currentUser.uid),
+      orderBy("createdAt", "desc"),
+      limit(30)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setNotifications(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Notifications sync error:", err));
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // مزامنة رسائل المحادثة المفتوحة حالياً
+  useEffect(() => {
+    if (!activeConversation) { setChatMessages([]); return; }
+    const q = query(
+      collection(db, "conversations", activeConversation.id, "messages"),
+      orderBy("createdAt", "asc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setChatMessages(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Messages sync error:", err));
+    return () => unsubscribe();
+  }, [activeConversation]);
+
+  const unreadChatsCount = conversations.reduce((sum, c) => sum + (currentUser && c.unread ? (c.unread[currentUser.uid] || 0) : 0), 0);
+  const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
   const categoryKeys = ["الكل", "الثروة الحيوانية", "المنتجات والمحاصيل الزراعية | Produits Agricoles"];
   const countryKeys = ["كل الدول", "السودان", "تشاد", "ليبيا"];
@@ -350,6 +445,108 @@ export default function App() {
 
   const handleLogout = async () => {
     await signOut(auth);
+  };
+
+  // ==================== دوال الدردشة والإشعارات ====================
+
+  // البحث عن محادثة موجودة بين المستخدم الحالي وصاحب العرض حول هذا المنتج، أو إنشاء واحدة جديدة
+  const getOrCreateConversation = async (product) => {
+    const existing = conversations.find(
+      c => c.productId === String(product.id) && c.participants.includes(product.ownerUid)
+    );
+    if (existing) return existing;
+
+    const convRef = doc(collection(db, "conversations"));
+    const newConv = {
+      participants: [currentUser.uid, product.ownerUid],
+      productId: String(product.id),
+      productTitle: product.title,
+      lastMessage: "",
+      lastMessageAt: serverTimestamp(),
+      unread: { [currentUser.uid]: 0, [product.ownerUid]: 0 }
+    };
+    await setDoc(convRef, newConv);
+    return { id: convRef.id, ...newConv };
+  };
+
+  // فتح نافذة الدردشة مع صاحب عرض معيّن (يُستدعى من زر "راسل البائع" على بطاقة المنتج)
+  const handleContactSeller = async (product) => {
+    if (!currentUser) {
+      alert(t.chatRequiresLogin);
+      openAuthModal();
+      return;
+    }
+    if (!product.ownerUid || product.ownerUid === currentUser.uid) {
+      alert(t.noOwnerAlert);
+      return;
+    }
+    const conv = await getOrCreateConversation(product);
+    openConversation(conv);
+  };
+
+  // فتح محادثة من القائمة وتصفير عداد غير المقروء الخاص بالمستخدم الحالي فيها
+  const openConversation = async (conv) => {
+    setActiveConversation(conv);
+    setIsChatListOpen(true);
+    if (currentUser && conv.unread && conv.unread[currentUser.uid]) {
+      try {
+        await updateDoc(doc(db, "conversations", conv.id), { [`unread.${currentUser.uid}`]: 0 });
+      } catch (err) {
+        console.error("Failed to reset unread count:", err);
+      }
+    }
+  };
+
+  const closeActiveConversation = () => {
+    setActiveConversation(null);
+  };
+
+  // إرسال رسالة جديدة داخل المحادثة النشطة + تحديث آخر رسالة وعداد غير المقروء + إنشاء إشعار للطرف الآخر
+  const sendChatMessage = async (e) => {
+    e.preventDefault();
+    if (!newMessageText.trim() || !activeConversation || !currentUser) return;
+    const otherUid = activeConversation.participants.find(uid => uid !== currentUser.uid);
+    const textToSend = newMessageText.trim();
+    setNewMessageText("");
+    try {
+      await addDoc(collection(db, "conversations", activeConversation.id, "messages"), {
+        senderId: currentUser.uid,
+        text: textToSend,
+        createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, "conversations", activeConversation.id), {
+        lastMessage: textToSend,
+        lastMessageAt: serverTimestamp(),
+        [`unread.${otherUid}`]: (activeConversation.unread?.[otherUid] || 0) + 1
+      });
+      if (otherUid) {
+        await addDoc(collection(db, "notifications"), {
+          userId: otherUid,
+          type: "message",
+          text: `${t.newMsgNotif} ${activeConversation.productTitle}`,
+          conversationId: activeConversation.id,
+          read: false,
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (err) {
+      console.error("Failed to send message:", err);
+    }
+  };
+
+  const markNotificationRead = async (notif) => {
+    try {
+      await updateDoc(doc(db, "notifications", notif.id), { read: true });
+    } catch (err) {
+      console.error("Failed to mark notification read:", err);
+    }
+    if (notif.conversationId) {
+      const conv = conversations.find(c => c.id === notif.conversationId);
+      if (conv) {
+        setIsNotifOpen(false);
+        openConversation(conv);
+      }
+    }
   };
 
   // ==================== دوال رفع الوسائط (Cloudinary) ====================
@@ -483,20 +680,28 @@ export default function App() {
         </div>
       </header>
 
-      <div style={styles.catToggleRow}>
+      <div style={styles.catCircleRow}>
         {categoryKeys.map((cat, idx) => (
           <button
             key={idx}
             onClick={() => setSelectedCategory(cat)}
-            style={{
-              ...styles.catToggleBtn,
-              backgroundColor: selectedCategory === cat ? "#16213A" : "#fff",
-              color: selectedCategory === cat ? "#fff" : "#000"
-            }}
+            style={styles.catCircleBtn}
           >
-            {cat === "الثروة الحيوانية" && <img src={BRAND_IMAGES.catLivestock} alt="" style={styles.catIcon} />}
-            {cat === "المنتجات والمحاصيل الزراعية | Produits Agricoles" && <img src={BRAND_IMAGES.catAgri} alt="" style={styles.catIcon} />}
-            {displayCategory(cat)}
+            <div style={{
+              ...styles.catCircleImgWrap,
+              borderColor: selectedCategory === cat ? "#A64B2A" : "#d9cba3"
+            }}>
+              {cat === "الكل" && <span style={styles.catCircleEmoji}>🗂️</span>}
+              {cat === "الثروة الحيوانية" && <img src={BRAND_IMAGES.catLivestock} alt="" style={styles.catCircleImg} />}
+              {cat === "المنتجات والمحاصيل الزراعية | Produits Agricoles" && <img src={BRAND_IMAGES.catAgri} alt="" style={styles.catCircleImg} />}
+            </div>
+            <span style={{
+              ...styles.catCircleLabel,
+              color: selectedCategory === cat ? "#A64B2A" : "#555",
+              fontWeight: selectedCategory === cat ? "bold" : "normal"
+            }}>
+              {displayCategory(cat)}
+            </span>
           </button>
         ))}
       </div>
@@ -553,14 +758,140 @@ export default function App() {
               </div>
               <div style={styles.cardFooter}>
                 <span style={styles.sellerName}>{t.sellerPrefix} {product.seller}</span>
-                <a href={`tel:${product.contact}`} style={styles.contactBtn}>{t.contactPrefix} {product.contact}</a>
+                <div style={{display: "flex", gap: "6px"}}>
+                  <button onClick={() => handleContactSeller(product)} style={styles.chatBtn}>{t.contactSellerBtn}</button>
+                  <a href={`tel:${product.contact}`} style={styles.contactBtn}>{t.callSellerBtn}</a>
+                </div>
               </div>
             </div>
           ))
         )}
       </main>
 
-      <button onClick={handleOpenAddProduct} style={styles.fab}>{t.fabButton}</button>
+      {/* ==================== الزر العائم لإضافة عرض (كاميرا) ==================== */}
+      <button onClick={handleOpenAddProduct} style={styles.fabCamera} aria-label={t.fabButton}>📷</button>
+
+      {/* ==================== الشريط السفلي الثابت ==================== */}
+      <nav style={styles.bottomNav}>
+        <button
+          onClick={() => { setSelectedCategory("الكل"); setSearchQuery(""); setCountryFilter("كل الدول"); window.scrollTo({top:0, behavior:'smooth'}); }}
+          style={styles.navItem}
+        >
+          <span style={styles.navIcon}>🏠</span>
+          <span style={styles.navLabel}>{t.navHome}</span>
+        </button>
+
+        <button onClick={() => { if (!currentUser) { openAuthModal(); } else { setIsChatListOpen(true); } }} style={styles.navItem}>
+          <span style={{position: "relative"}}>
+            <span style={styles.navIcon}>💬</span>
+            {unreadChatsCount > 0 && <span style={styles.navBadge}>{unreadChatsCount}</span>}
+          </span>
+          <span style={styles.navLabel}>{t.navChats}</span>
+        </button>
+
+        <button onClick={() => { if (!currentUser) { openAuthModal(); } else { setIsNotifOpen(true); } }} style={styles.navItem}>
+          <span style={{position: "relative"}}>
+            <span style={styles.navIcon}>🔔</span>
+            {unreadNotifsCount > 0 && <span style={styles.navBadge}>{unreadNotifsCount}</span>}
+          </span>
+          <span style={styles.navLabel}>{t.navNotifications}</span>
+        </button>
+
+        <button onClick={() => currentUser ? handleLogout() : openAuthModal()} style={styles.navItem}>
+          <span style={styles.navIcon}>👤</span>
+          <span style={styles.navLabel}>{currentUser ? t.logoutBtn : t.navAccount}</span>
+        </button>
+      </nav>
+
+      {/* ==================== نافذة قائمة الدردشات / المحادثة النشطة ==================== */}
+      {isChatListOpen && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            {!activeConversation ? (
+              <>
+                <div style={styles.modalHeader}>
+                  <h2 style={{margin:0, fontSize:18, color:'#16213A'}}>{t.chatsTitle}</h2>
+                  <button onClick={() => setIsChatListOpen(false)} style={styles.closeBtn}>❌</button>
+                </div>
+                {conversations.length === 0 ? (
+                  <p style={{textAlign:'center', color:'#777', padding: '20px 0'}}>{t.noChats}</p>
+                ) : (
+                  <div style={{display:'flex', flexDirection:'column', gap:'6px'}}>
+                    {conversations.map(conv => (
+                      <button key={conv.id} onClick={() => openConversation(conv)} style={styles.convListItem}>
+                        <div style={{display:'flex', flexDirection:'column', alignItems:'flex-start', flex:1}}>
+                          <strong style={{fontSize:14, color:'#16213A'}}>{conv.productTitle}</strong>
+                          <span style={{fontSize:12, color:'#777'}}>{conv.lastMessage || ""}</span>
+                        </div>
+                        {currentUser && conv.unread && conv.unread[currentUser.uid] > 0 && (
+                          <span style={styles.navBadge}>{conv.unread[currentUser.uid]}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={styles.modalHeader}>
+                  <button onClick={closeActiveConversation} style={styles.closeBtn}>{language === 'ar' ? '→' : '←'} {t.backBtn}</button>
+                  <strong style={{fontSize:14, color:'#16213A'}}>{activeConversation.productTitle}</strong>
+                  <button onClick={() => { setIsChatListOpen(false); setActiveConversation(null); }} style={styles.closeBtn}>❌</button>
+                </div>
+                <div style={styles.chatMessagesArea}>
+                  {chatMessages.map(msg => (
+                    <div
+                      key={msg.id}
+                      style={{
+                        ...styles.chatBubble,
+                        alignSelf: currentUser && msg.senderId === currentUser.uid ? (language === 'ar' ? 'flex-start' : 'flex-end') : (language === 'ar' ? 'flex-end' : 'flex-start'),
+                        backgroundColor: currentUser && msg.senderId === currentUser.uid ? '#16213A' : '#F5EFE6',
+                        color: currentUser && msg.senderId === currentUser.uid ? '#fff' : '#16213A'
+                      }}
+                    >
+                      {msg.text}
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={sendChatMessage} style={{display:'flex', gap:'8px', marginTop:'8px'}}>
+                  <input
+                    type="text"
+                    style={{...styles.modalInput, flex:1}}
+                    placeholder={t.messagePlaceholder}
+                    value={newMessageText}
+                    onChange={e => setNewMessageText(e.target.value)}
+                  />
+                  <button type="submit" style={{...styles.submitBtn, marginTop:0, padding:'10px 16px'}}>{t.sendBtn}</button>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== نافذة الإشعارات ==================== */}
+      {isNotifOpen && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:18, color:'#16213A'}}>{t.notifTitle}</h2>
+              <button onClick={() => setIsNotifOpen(false)} style={styles.closeBtn}>❌</button>
+            </div>
+            {notifications.length === 0 ? (
+              <p style={{textAlign:'center', color:'#777', padding: '20px 0'}}>{t.noNotifs}</p>
+            ) : (
+              <div style={{display:'flex', flexDirection:'column', gap:'6px'}}>
+                {notifications.map(notif => (
+                  <button key={notif.id} onClick={() => markNotificationRead(notif)} style={{...styles.convListItem, opacity: notif.read ? 0.55 : 1}}>
+                    <span style={{fontSize:13, color:'#16213A', textAlign: language === 'ar' ? 'right' : 'left'}}>{notif.text}</span>
+                    {!notif.read && <span style={styles.unreadDot}></span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ==================== نافذة إضافة عرض ==================== */}
       {isModalOpen && (
@@ -711,7 +1042,7 @@ export default function App() {
 }
 
 const styles = {
-  container: { backgroundColor: "#F5EFE6", minHeight: "100vh", padding: "12px", fontFamily: "sans-serif" },
+  container: { backgroundColor: "#F5EFE6", minHeight: "100vh", padding: "12px", paddingBottom: "78px", fontFamily: "sans-serif" },
   header: { backgroundColor: "#16213A", backgroundSize: "cover", backgroundPosition: "center", color: "#fff", borderRadius: "12px", padding: "16px", marginBottom: "14px", textAlign: "center" },
   headerTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" },
   headerRight: { display: "flex", alignItems: "center", gap: "8px" },
@@ -732,7 +1063,7 @@ const styles = {
   input: { flex: 2, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px", width: "100%", boxSizing: "border-box" },
   searchWrap: { position: "relative", flex: 2, display: "flex", alignItems: "center" },
   searchIcon: { position: "absolute", fontSize: "14px", opacity: 0.6, pointerEvents: "none" },
-  productList: { display: "flex", flexDirection: "column", gap: "12px", paddingBottom: "80px" },
+  productList: { display: "flex", flexDirection: "column", gap: "12px", paddingBottom: "20px" },
   card: { backgroundColor: "#fff", borderRadius: "12px", padding: "14px", border: "1px solid #e2dcd0", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" },
   cardHeader: { display: "flex", justifyContent: "space-between", marginBottom: "8px" },
   timeBadge: { fontSize: "11px", color: "#999" },
@@ -758,5 +1089,49 @@ const styles = {
   modalInput: { padding: "10px", borderRadius: "8px", border: "1px solid #CCC", fontSize: "14px", fontFamily: "sans-serif" },
   submitBtn: { backgroundColor: "#16213A", color: "#FFF", border: "none", padding: "12px", borderRadius: "8px", fontSize: "15px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" },
   authMethodBtn: { flex: 1, border: "1px solid #d9cba3", borderRadius: "8px", padding: "8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" },
-  switchAuthBtn: { background: "none", border: "none", color: "#16213A", fontSize: "12px", textDecoration: "underline", cursor: "pointer", marginTop: "4px" }
+  switchAuthBtn: { background: "none", border: "none", color: "#16213A", fontSize: "12px", textDecoration: "underline", cursor: "pointer", marginTop: "4px" },
+
+  // ==== الأيقونات الدائرية للأقسام ====
+  catCircleRow: { display: "flex", gap: "16px", marginBottom: "14px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" },
+  catCircleBtn: { background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", flexShrink: 0, cursor: "pointer", width: "62px" },
+  catCircleImgWrap: { width: "56px", height: "56px", borderRadius: "50%", border: "2px solid #d9cba3", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  catCircleImg: { width: "100%", height: "100%", objectFit: "cover" },
+  catCircleEmoji: { fontSize: "22px" },
+  catCircleLabel: { fontSize: "11px", textAlign: "center", lineHeight: "1.2" },
+
+  // ==== أزرار المراسلة والاتصال على بطاقة المنتج ====
+  chatBtn: { backgroundColor: "#16213A", color: "#fff", border: "none", padding: "6px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
+
+  // ==== الزر العائم (كاميرا) ====
+  fabCamera: {
+    position: "fixed", bottom: "46px", left: "50%", transform: "translateX(-50%)",
+    width: "58px", height: "58px", borderRadius: "50%",
+    backgroundColor: "#E9702A", color: "#fff", border: "3px solid #fff",
+    fontSize: "24px", boxShadow: "0 4px 14px rgba(0,0,0,0.35)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 95, cursor: "pointer"
+  },
+
+  // ==== الشريط السفلي ====
+  bottomNav: {
+    position: "fixed", bottom: 0, left: 0, right: 0, height: "64px",
+    backgroundColor: "#fff", borderTop: "1px solid #eee",
+    display: "flex", justifyContent: "space-around", alignItems: "center",
+    boxShadow: "0 -2px 8px rgba(0,0,0,0.06)", zIndex: 90, padding: "0 6px"
+  },
+  navItem: { background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", cursor: "pointer", color: "#16213A", flex: 1 },
+  navIcon: { fontSize: "20px" },
+  navLabel: { fontSize: "10px" },
+  navBadge: {
+    position: "absolute", top: "-6px", insetInlineEnd: "-8px",
+    backgroundColor: "#C84B31", color: "#fff", borderRadius: "50%",
+    minWidth: "16px", height: "16px", fontSize: "10px", fontWeight: "bold",
+    display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px"
+  },
+
+  // ==== الدردشات والإشعارات ====
+  convListItem: { display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", backgroundColor: "#F5EFE6", border: "1px solid #e2dcd0", borderRadius: "10px", padding: "10px 12px", cursor: "pointer", textAlign: "start" },
+  chatMessagesArea: { display: "flex", flexDirection: "column", gap: "8px", maxHeight: "50vh", overflowY: "auto", padding: "6px 2px" },
+  chatBubble: { maxWidth: "75%", padding: "8px 12px", borderRadius: "14px", fontSize: "13.5px", lineHeight: "1.4" },
+  unreadDot: { width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#C84B31", flexShrink: 0 }
 };
