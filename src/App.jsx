@@ -1,18 +1,153 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { auth } from './firebase';
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  RecaptchaVerifier,
+  signInWithPhoneNumber
+} from 'firebase/auth';
 
-// ==== إعدادات Cloudinary — استبدل بقيمك الفعلية ====
+// ==== إعدادات Cloudinary ====
 const CLOUDINARY_CLOUD_NAME = "tqvxulwr";
 const CLOUDINARY_UPLOAD_PRESET = "souq_uploads";
 
-// مصفوفة التصنيفات الثابتة
-const categories = ["الكل", "الثروة الحيوانية", "المنتجات والمحاصيل الزراعية | Produits Agricoles"];
+// ==== نظام الترجمة لواجهة التطبيق ====
+const translations = {
+  ar: {
+    appTitle: "السوق المفتوح الاقليمي",
+    appSubtitle: "الثروة الحيوانية والمحاصيل الزراعية | Élevage et Cultures",
+    countries: "ليبيا · تشاد · السودان",
+    currencyDefault: "الأساسية",
+    catAll: "الكل",
+    catLivestock: "الثروة الحيوانية",
+    catAgri: "المنتجات والمحاصيل الزراعية | Produits Agricoles",
+    countryAll: "كل الدول",
+    countrySudan: "السودان",
+    countryChad: "تشاد",
+    countryLibya: "ليبيا",
+    searchPlaceholder: "ابحث عن سلعة أو موقع...",
+    noResults: "لا توجد عروض تطابق بحثك حالياً.",
+    locationPrefix: "📍",
+    sellerPrefix: "👤",
+    contactPrefix: "📞 اتصال:",
+    fabButton: "+ أضف عرضك التصديري",
+    modalTitle: "إضافة عرض تجاري جديد",
+    labelTitle: "عنوان العرض (مثال: شحنة صمغ عربي نقي للبيع)",
+    labelCategory: "التصنيف الرئيسي",
+    labelPrice: "السعر الرقمي",
+    labelCurrency: "عملة العرض",
+    labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
+    labelSeller: "اسم التاجر / الشركة",
+    labelContact: "رقم الهاتف (واتساب أو اتصال مع رمز الدولة)",
+    labelDesc: "تفاصيل السلعة ومواصفاتها",
+    labelMedia: "صور أو فيديو للسلعة (اختياري، حتى 5 ملفات)",
+    filesSelected: "تم اختيار",
+    filesUnit: "ملف/ملفات",
+    uploading: "جاري رفع",
+    uploadingSuffix: "ملف...",
+    submitBtn: "🚀 نشر العرض فوراً في السوق",
+    submitting: "⏳ جاري الرفع...",
+    requiredAlert: "الرجاء ملء الحقول الأساسية!",
+    uploadErrorAlert: "حدث خطأ أثناء رفع الوسائط. تأكد من اتصالك بالإنترنت وحاول مجدداً.",
+    filesIgnoredAlert: "تم تجاهل بعض الملفات: الحد الأقصى 5 ملفات، وحجم كل ملف لا يتجاوز 20 ميغابايت.",
+    currencyLYD: "دينار ليبي (LYD)",
+    currencyXAF: "فرنك تشادي (XAF)",
+    currencySDG: "جنيه سوداني (SDG)",
+    langToggle: "Français",
+
+    // === نصوص تسجيل الدخول الجديدة ===
+    loginBtn: "تسجيل الدخول",
+    logoutBtn: "تسجيل الخروج",
+    loggedInAs: "مرحباً",
+    authModalTitleLogin: "تسجيل الدخول",
+    authModalTitleSignup: "إنشاء حساب جديد",
+    authMethodEmail: "البريد الإلكتروني",
+    authMethodPhone: "رقم الهاتف",
+    emailLabel: "البريد الإلكتروني",
+    passwordLabel: "كلمة المرور",
+    phoneLabel: "رقم الهاتف (مع رمز الدولة، مثال: 249...+)",
+    otpLabel: "رمز التحقق المُرسل عبر SMS",
+    sendOtpBtn: "إرسال رمز التحقق",
+    verifyOtpBtn: "تأكيد الرمز والدخول",
+    submitLoginBtn: "دخول",
+    submitSignupBtn: "إنشاء الحساب",
+    switchToSignup: "ليس لديك حساب؟ أنشئ حساباً جديداً",
+    switchToLogin: "لديك حساب بالفعل؟ سجّل الدخول",
+    authRequiredAlert: "يجب تسجيل الدخول أولاً لنشر عرض جديد.",
+    authErrorGeneric: "حدث خطأ. تأكد من صحة البيانات وحاول مجدداً.",
+    otpSentMsg: "تم إرسال رمز التحقق إلى هاتفك.",
+    closeBtn: "إغلاق"
+  },
+  fr: {
+    appTitle: "Souq Al-Maftouh Régional",
+    appSubtitle: "الثروة الحيوانية والمحاصيل الزراعية | Élevage et Cultures",
+    countries: "Libye · Tchad · Soudan",
+    currencyDefault: "Par défaut",
+    catAll: "Tout",
+    catLivestock: "الثروة الحيوانية",
+    catAgri: "المنتجات والمحاصيل الزراعية | Produits Agricoles",
+    countryAll: "Tous les pays",
+    countrySudan: "Soudan",
+    countryChad: "Tchad",
+    countryLibya: "Libye",
+    searchPlaceholder: "Rechercher un produit ou un lieu...",
+    noResults: "Aucune offre ne correspond à votre recherche.",
+    locationPrefix: "📍",
+    sellerPrefix: "👤",
+    contactPrefix: "📞 Appeler :",
+    fabButton: "+ Ajouter votre offre",
+    modalTitle: "Ajouter une nouvelle offre",
+    labelTitle: "Titre de l'offre (ex : Lot de gomme arabique pure à vendre)",
+    labelCategory: "Catégorie principale",
+    labelPrice: "Prix",
+    labelCurrency: "Devise de l'offre",
+    labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
+    labelSeller: "Nom du vendeur / entreprise",
+    labelContact: "Numéro de téléphone (WhatsApp ou appel, avec indicatif pays)",
+    labelDesc: "Détails et spécifications du produit",
+    labelMedia: "Photos ou vidéo du produit (optionnel, jusqu'à 5 fichiers)",
+    filesSelected: "Fichiers sélectionnés :",
+    filesUnit: "",
+    uploading: "Téléversement de",
+    uploadingSuffix: "fichier(s)...",
+    submitBtn: "🚀 Publier l'offre immédiatement",
+    submitting: "⏳ Téléversement en cours...",
+    requiredAlert: "Veuillez remplir les champs obligatoires !",
+    uploadErrorAlert: "Erreur lors du téléversement. Vérifiez votre connexion et réessayez.",
+    filesIgnoredAlert: "Certains fichiers ont été ignorés : maximum 5 fichiers, 20 Mo par fichier.",
+    currencyLYD: "Dinar libyen (LYD)",
+    currencyXAF: "Franc tchadien (XAF)",
+    currencySDG: "Livre soudanaise (SDG)",
+    langToggle: "العربية",
+
+    loginBtn: "Connexion",
+    logoutBtn: "Déconnexion",
+    loggedInAs: "Bonjour",
+    authModalTitleLogin: "Connexion",
+    authModalTitleSignup: "Créer un compte",
+    authMethodEmail: "E-mail",
+    authMethodPhone: "Téléphone",
+    emailLabel: "Adresse e-mail",
+    passwordLabel: "Mot de passe",
+    phoneLabel: "Numéro de téléphone (avec indicatif, ex : +249...)",
+    otpLabel: "Code de vérification reçu par SMS",
+    sendOtpBtn: "Envoyer le code",
+    verifyOtpBtn: "Vérifier et se connecter",
+    submitLoginBtn: "Se connecter",
+    submitSignupBtn: "Créer le compte",
+    switchToSignup: "Pas de compte ? Créez-en un",
+    switchToLogin: "Déjà un compte ? Connectez-vous",
+    authRequiredAlert: "Vous devez vous connecter avant de publier une offre.",
+    authErrorGeneric: "Une erreur est survenue. Vérifiez vos informations et réessayez.",
+    otpSentMsg: "Le code de vérification a été envoyé à votre téléphone.",
+    closeBtn: "Fermer"
+  }
+};
 
 // أسعار الصرف الثابتة مقارنة بالدولار (تحديث 2026)
-const exchangeRates = {
-  "LYD": 4.80, // دينار ليبي
-  "XAF": 600,  // فرنك وسط أفريقيا (تشاد)
-  "SDG": 650   // جنيه سوداني
-};
+const exchangeRates = { "LYD": 4.80, "XAF": 600, "SDG": 650 };
 
 // البيانات الأولية لبدء التطبيق
 const initialProducts = [
@@ -22,13 +157,9 @@ const initialProducts = [
     category: "الثروة الحيوانية",
     location: "نيالا، السودان",
     desc: "قطيع من الإبل السودانية بحالة صحية جيدة، جاهز للنقل عبر الجنينة نحو الحدود التشادية.",
-    price: 9000,
-    currency: "SDG",
-    unit: "رأس",
-    contact: "+249912345678",
-    seller: "أبو بكر الصديق لشحن الماشية",
-    date: "منذ يومين",
-    media: []
+    price: 9000, currency: "SDG", unit: "رأس",
+    contact: "+249912345678", seller: "أبو بكر الصديق لشحن الماشية",
+    date: "منذ يومين", media: []
   },
   {
     id: 2,
@@ -36,29 +167,22 @@ const initialProducts = [
     category: "المنتجات والمحاصيل الزراعية | Produits Agricoles",
     location: "أبشي، تشاد",
     desc: "فول سوداني نقي وعالي الجودة، معبأ في أكياس ومتوفر للبيع بالجملة والتصدير الإقليمي الكلي.",
-    price: 35000,
-    currency: "XAF",
-    unit: "شوال",
-    contact: "+23566123456",
-    seller: "شركة أبشي للإنتاج الزراعي",
-    date: "منذ 5 أيام",
-    media: []
+    price: 35000, currency: "XAF", unit: "شوال",
+    contact: "+23566123456", seller: "شركة أبشي للإنتاج الزراعي",
+    date: "منذ 5 أيام", media: []
   }
 ];
 
 export default function App() {
-  // 1. قاعدة البيانات المحلية للمنتجات
+  const [language, setLanguage] = useState('ar');
+  const t = translations[language];
+
   const [products, setProducts] = useState(initialProducts);
-
-  // 2. حالة منتقي العملة الافتراضية للعرض
   const [selectedCurrency, setSelectedCurrency] = useState("ORIGINAL");
-
-  // حالات الفلترة والبحث
   const [selectedCategory, setSelectedCategory] = useState("الكل");
   const [searchQuery, setSearchQuery] = useState("");
   const [countryFilter, setCountryFilter] = useState("كل الدول");
 
-  // حالات نافذة "إضافة عرض جديد"
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newCategory, setNewCategory] = useState("الثروة الحيوانية");
@@ -69,12 +193,47 @@ export default function App() {
   const [newSeller, setNewSeller] = useState("");
   const [newContact, setNewContact] = useState("");
 
-  // === حالات رفع الصور والفيديو ===
-  const [selectedFiles, setSelectedFiles] = useState([]); // ملفات مختارة قبل الرفع
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
 
-  // دالة تحويل العملة الديناميكية بداخل قاعدة البيانات
+  // ==================== حالات المصادقة (Auth) ====================
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' أو 'signup'
+  const [authMethod, setAuthMethod] = useState('email'); // 'email' أو 'phone'
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authPhone, setAuthPhone] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [confirmationResult, setConfirmationResult] = useState(null);
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // متابعة حالة تسجيل الدخول تلقائياً عند تحميل التطبيق
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const categoryKeys = ["الكل", "الثروة الحيوانية", "المنتجات والمحاصيل الزراعية | Produits Agricoles"];
+  const countryKeys = ["كل الدول", "السودان", "تشاد", "ليبيا"];
+
+  const displayCategory = (key) => {
+    if (key === "الكل") return t.catAll;
+    if (key === "الثروة الحيوانية") return t.catLivestock;
+    return t.catAgri;
+  };
+  const displayCountry = (key) => {
+    if (key === "كل الدول") return t.countryAll;
+    if (key === "السودان") return t.countrySudan;
+    if (key === "تشاد") return t.countryChad;
+    return t.countryLibya;
+  };
+
   const formatPrice = (price, fromCurrency) => {
     if (selectedCurrency === "ORIGINAL" || !exchangeRates[selectedCurrency]) {
       return `${price} ${fromCurrency === "XAF" ? "ف.س" : fromCurrency === "SDG" ? "ج.س" : "د.ل"}`;
@@ -85,101 +244,161 @@ export default function App() {
     return `${Math.round(convertedPrice).toLocaleString()} ${label}`;
   };
 
-  // عند اختيار المستخدم لملفات (صور/فيديو) من الجهاز
+  // ==================== دوال المصادقة ====================
+
+  const resetAuthFields = () => {
+    setAuthEmail(""); setAuthPassword(""); setAuthPhone("");
+    setOtpCode(""); setOtpSent(false); setConfirmationResult(null);
+    setAuthError("");
+  };
+
+  const openAuthModal = () => {
+    resetAuthFields();
+    setAuthMode('login');
+    setAuthMethod('email');
+    setIsAuthModalOpen(true);
+  };
+
+  const handleEmailAuth = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthLoading(true);
+    try {
+      if (authMode === 'login') {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      } else {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      }
+      setIsAuthModalOpen(false);
+      resetAuthFields();
+    } catch (err) {
+      setAuthError(t.authErrorGeneric);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // إعداد reCAPTCHA غير المرئي (مرة واحدة فقط)
+  const setupRecaptcha = () => {
+    if (!window.recaptchaVerifier) {
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible'
+      });
+    }
+    return window.recaptchaVerifier;
+  };
+
+  const handleSendOtp = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthLoading(true);
+    try {
+      const verifier = setupRecaptcha();
+      const result = await signInWithPhoneNumber(auth, authPhone, verifier);
+      setConfirmationResult(result);
+      setOtpSent(true);
+    } catch (err) {
+      setAuthError(t.authErrorGeneric);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthLoading(true);
+    try {
+      await confirmationResult.confirm(otpCode);
+      setIsAuthModalOpen(false);
+      resetAuthFields();
+    } catch (err) {
+      setAuthError(t.authErrorGeneric);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
+
+  // ==================== دوال رفع الوسائط (Cloudinary) ====================
+
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []);
-    // حد أقصى 5 ملفات، وحجم أقصى 20 ميغابايت لكل ملف (حماية بسيطة من جانب العميل)
     const validFiles = files.filter(f => f.size <= 20 * 1024 * 1024).slice(0, 5);
     if (validFiles.length < files.length) {
-      alert("تم تجاهل بعض الملفات: الحد الأقصى 5 ملفات، وحجم كل ملف لا يتجاوز 20 ميغابايت.");
+      alert(t.filesIgnoredAlert);
     }
     setSelectedFiles(validFiles);
   };
 
-  // رفع ملف واحد إلى Cloudinary عبر التحميل غير الموقّع (unsigned upload)
   const uploadSingleFileToCloudinary = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-
-    // "auto" يحدد تلقائياً إن كان صورة أو فيديو
     const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      body: formData
-    });
-
-    if (!response.ok) {
-      throw new Error("فشل رفع الملف: " + file.name);
-    }
-
+    const response = await fetch(endpoint, { method: "POST", body: formData });
+    if (!response.ok) throw new Error("Upload failed: " + file.name);
     const data = await response.json();
-    return {
-      url: data.secure_url,
-      type: data.resource_type // "image" أو "video"
-    };
+    return { url: data.secure_url, type: data.resource_type };
   };
 
-  // رفع كل الملفات المختارة بالتوازي
   const uploadAllFiles = async () => {
     if (selectedFiles.length === 0) return [];
-
     setIsUploading(true);
-    setUploadProgress(`جاري رفع ${selectedFiles.length} ملف...`);
-
+    setUploadProgress(`${t.uploading} ${selectedFiles.length} ${t.uploadingSuffix}`);
     try {
       const uploadPromises = selectedFiles.map(file => uploadSingleFileToCloudinary(file));
       const results = await Promise.all(uploadPromises);
       setUploadProgress("");
-      return results; // [{ url, type }, ...]
+      return results;
     } catch (err) {
-      alert("حدث خطأ أثناء رفع الوسائط. تأكد من اتصالك بالإنترنت وحاول مجدداً.\n" + err.message);
+      alert(t.uploadErrorAlert + "\n" + err.message);
       return [];
     } finally {
       setIsUploading(false);
     }
   };
 
-  // معالج إضافة العرض الجديد وحفظه في قاعدة البيانات (أصبح async بسبب الرفع)
+  // فتح نافذة إضافة عرض — يتطلب تسجيل دخول أولاً
+  const handleOpenAddProduct = () => {
+    if (!currentUser) {
+      alert(t.authRequiredAlert);
+      openAuthModal();
+      return;
+    }
+    setIsModalOpen(true);
+  };
+
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newTitle || !newPrice || !newSeller || !newContact) {
-      alert("الرجاء ملء الحقول الأساسية!");
+      alert(t.requiredAlert);
       return;
     }
-
-    // رفع الوسائط أولاً (إن وُجدت) قبل إنشاء العرض
     const uploadedMedia = await uploadAllFiles();
-
     const newProduct = {
       id: Date.now(),
       title: newTitle,
       category: newCategory,
       location: newLocation,
-      desc: newDesc || "لا توجد تفاصيل إضافية.",
+      desc: newDesc || "-",
       price: parseFloat(newPrice),
       currency: newCurrency,
       unit: newCategory === "الثروة الحيوانية" ? "رأس" : "شوال",
       contact: newContact,
       seller: newSeller,
-      date: "الآن",
-      media: uploadedMedia
+      date: language === 'ar' ? "الآن" : "à l'instant",
+      media: uploadedMedia,
+      ownerUid: currentUser ? currentUser.uid : null
     };
-
     setProducts([newProduct, ...products]);
     setIsModalOpen(false);
-
-    // تصفير المدخلات
-    setNewTitle("");
-    setNewPrice("");
-    setNewDesc("");
-    setNewSeller("");
-    setNewContact("");
-    setSelectedFiles([]);
+    setNewTitle(""); setNewPrice(""); setNewDesc(""); setNewSeller(""); setNewContact(""); setSelectedFiles([]);
   };
 
-  // تصفية المنتجات حسب الاختيارات
   const filteredProducts = products.filter(p => {
     const matchesCategory = selectedCategory === "الكل" || p.category === selectedCategory;
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || p.desc.toLowerCase().includes(searchQuery.toLowerCase());
@@ -187,21 +406,42 @@ export default function App() {
     return matchesCategory && matchesSearch && matchesCountry;
   });
 
+  const userDisplayLabel = currentUser ? (currentUser.email || currentUser.phoneNumber || "") : "";
+
   return (
-    <div style={styles.container}>
-      {/* الهيدر العلوي المطور مع منتقي العملات التفاعلي */}
+    <div style={{...styles.container, direction: language === 'ar' ? 'rtl' : 'ltr'}}>
+      {/* حاوية reCAPTCHA غير المرئية المطلوبة لتسجيل الدخول بالهاتف */}
+      <div id="recaptcha-container"></div>
+
       <header style={styles.header}>
         <div style={styles.headerTop}>
-          <h1 style={styles.title}>السوق المفتوح الاقليمي</h1>
-          <div style={styles.logoIcon}>⚖️</div>
+          <h1 style={styles.title}>{t.appTitle}</h1>
+          <div style={styles.headerRight}>
+            <button onClick={() => setLanguage(language === 'ar' ? 'fr' : 'ar')} style={styles.langBtn}>
+              🌐 {t.langToggle}
+            </button>
+            <div style={styles.logoIcon}>⚖️</div>
+          </div>
         </div>
         <p style={styles.subtitle}>
-          الثروة الحيوانية والمحاصيل الزراعية | Élevage et Cultures <br/>
-          <small style={{ fontSize: '11px', opacity: 0.9 }}>ليبيا · تشاد · السودان</small>
+          {t.appSubtitle} <br/>
+          <small style={{ fontSize: '11px', opacity: 0.9 }}>{t.countries}</small>
         </p>
 
+        {/* شريط حالة تسجيل الدخول */}
+        <div style={styles.authBar}>
+          {currentUser ? (
+            <>
+              <span style={styles.authBarText}>{t.loggedInAs} {userDisplayLabel}</span>
+              <button onClick={handleLogout} style={styles.authBarBtn}>{t.logoutBtn}</button>
+            </>
+          ) : (
+            <button onClick={openAuthModal} style={styles.authBarBtn}>{t.loginBtn}</button>
+          )}
+        </div>
+
         <div style={styles.currencyBar}>
-          <button onClick={() => setSelectedCurrency("ORIGINAL")} style={{...styles.badge, backgroundColor: selectedCurrency === "ORIGINAL" ? "#FFF" : "#E9B824", color: "#000"}}>الأساسية</button>
+          <button onClick={() => setSelectedCurrency("ORIGINAL")} style={{...styles.badge, backgroundColor: selectedCurrency === "ORIGINAL" ? "#FFF" : "#E9B824", color: "#000"}}>{t.currencyDefault}</button>
           <button onClick={() => setSelectedCurrency("LYD")} style={{...styles.badge, backgroundColor: selectedCurrency === "LYD" ? "#FFF" : "#E9B824", color: "#000"}}>د.ل</button>
           <button onClick={() => setSelectedCurrency("XAF")} style={{...styles.badge, backgroundColor: selectedCurrency === "XAF" ? "#FFF" : "#E9B824", color: "#000"}}>ف.س</button>
           <button onClick={() => setSelectedCurrency("SDG")} style={{...styles.badge, backgroundColor: selectedCurrency === "SDG" ? "#FFF" : "#E9B824", color: "#000"}}>ج.س</button>
@@ -209,7 +449,7 @@ export default function App() {
       </header>
 
       <div style={styles.catToggleRow}>
-        {categories.map((cat, idx) => (
+        {categoryKeys.map((cat, idx) => (
           <button
             key={idx}
             onClick={() => setSelectedCategory(cat)}
@@ -219,21 +459,18 @@ export default function App() {
               color: selectedCategory === cat ? "#fff" : "#000"
             }}
           >
-            {cat}
+            {displayCategory(cat)}
           </button>
         ))}
       </div>
 
       <div style={styles.filterRow}>
         <select style={styles.select} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
-          <option>كل الدول</option>
-          <option>السودان</option>
-          <option>تشاد</option>
-          <option>ليبيا</option>
+          {countryKeys.map((c, i) => <option key={i} value={c}>{displayCountry(c)}</option>)}
         </select>
         <input
           type="text"
-          placeholder="ابحث عن سلعة أو موقع..."
+          placeholder={t.searchPlaceholder}
           style={styles.input}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -242,16 +479,17 @@ export default function App() {
 
       <main style={styles.productList}>
         {filteredProducts.length === 0 ? (
-          <p style={{textAlign:'center', color:'#777', marginTop:20}}>لا توجد عروض تطابق بحثك حالياً.</p>
+          <p style={{textAlign:'center', color:'#777', marginTop:20}}>{t.noResults}</p>
         ) : (
           filteredProducts.map(product => (
             <div key={product.id} style={styles.card}>
               <div style={styles.cardHeader}>
                 <span style={styles.timeBadge}>{product.date}</span>
-                <span style={styles.catLabel}>{product.category.split(' ')[0]}</span>
+                <span style={styles.catLabel}>
+                  {product.category === "الثروة الحيوانية" ? t.catLivestock : t.catAgri}
+                </span>
               </div>
 
-              {/* === عرض الصور والفيديو المرفقة (إن وُجدت) === */}
               {product.media && product.media.length > 0 && (
                 <div style={styles.mediaRow}>
                   {product.media.map((m, idx) => (
@@ -265,79 +503,73 @@ export default function App() {
               )}
 
               <h3 style={styles.productTitle}>{product.title}</h3>
-              <p style={styles.locationText}>📍 {product.location}</p>
+              <p style={styles.locationText}>{t.locationPrefix} {product.location}</p>
               <p style={styles.descText}>{product.desc}</p>
               <div style={styles.divider}></div>
               <div style={styles.priceRow}>
                 <span style={styles.mainPrice}>{formatPrice(product.price, product.currency)} <small style={{fontSize:11, fontWeight:400, color:'#555'}}>({product.unit})</small></span>
               </div>
               <div style={styles.cardFooter}>
-                <span style={styles.sellerName}>👤 {product.seller}</span>
-                <a href={`tel:${product.contact}`} style={styles.contactBtn}>📞 اتصال: {product.contact}</a>
+                <span style={styles.sellerName}>{t.sellerPrefix} {product.seller}</span>
+                <a href={`tel:${product.contact}`} style={styles.contactBtn}>{t.contactPrefix} {product.contact}</a>
               </div>
             </div>
           ))
         )}
       </main>
 
-      <button onClick={() => setIsModalOpen(true)} style={styles.fab}>+ أضف عرضك التصديري</button>
+      <button onClick={handleOpenAddProduct} style={styles.fab}>{t.fabButton}</button>
 
+      {/* ==================== نافذة إضافة عرض ==================== */}
       {isModalOpen && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
             <div style={styles.modalHeader}>
-              <h2 style={{margin:0, fontSize:18, color:'#16213A'}}>إضافة عرض تجاري جديد</h2>
+              <h2 style={{margin:0, fontSize:18, color:'#16213A'}}>{t.modalTitle}</h2>
               <button onClick={() => setIsModalOpen(false)} style={styles.closeBtn}>❌</button>
             </div>
             <form onSubmit={handleAddProduct} style={styles.modalBody}>
-              <label style={styles.label}>عنوان العرض (مثال: شحنة صمغ عربي نقي للبيع)</label>
+              <label style={styles.label}>{t.labelTitle}</label>
               <input type="text" required style={styles.modalInput} value={newTitle} onChange={e => setNewTitle(e.target.value)} />
 
-              <label style={styles.label}>التصنيف الرئيسي</label>
+              <label style={styles.label}>{t.labelCategory}</label>
               <select style={styles.modalInput} value={newCategory} onChange={e => setNewCategory(e.target.value)}>
-                <option value="الثروة الحيوانية">الثروة الحيوانية</option>
-                <option value="المنتجات والمحاصيل الزراعية | Produits Agricoles">المنتجات والمحاصيل الزراعية</option>
+                <option value="الثروة الحيوانية">{t.catLivestock}</option>
+                <option value="المنتجات والمحاصيل الزراعية | Produits Agricoles">{t.catAgri}</option>
               </select>
 
               <div style={{display:'flex', gap:10}}>
                 <div style={{flex:1}}>
-                  <label style={styles.label}>السعر الرقمي</label>
+                  <label style={styles.label}>{t.labelPrice}</label>
                   <input type="number" required style={styles.modalInput} value={newPrice} onChange={e => setNewPrice(e.target.value)} />
                 </div>
                 <div style={{flex:1}}>
-                  <label style={styles.label}>عملة العرض</label>
+                  <label style={styles.label}>{t.labelCurrency}</label>
                   <select style={styles.modalInput} value={newCurrency} onChange={e => setNewCurrency(e.target.value)}>
-                    <option value="LYD">دينار ليبي (LYD)</option>
-                    <option value="XAF">فرنك تشادي (XAF)</option>
-                    <option value="SDG">جنيه سوداني (SDG)</option>
+                    <option value="LYD">{t.currencyLYD}</option>
+                    <option value="XAF">{t.currencyXAF}</option>
+                    <option value="SDG">{t.currencySDG}</option>
                   </select>
                 </div>
               </div>
 
-              <label style={styles.label}>الموقع الحالي والبلد (مثال: الخرطوم، السودان)</label>
-              <input type="text" required placeholder="المدينة، الدولة" style={styles.modalInput} value={newLocation} onChange={e => setNewLocation(e.target.value)} />
+              <label style={styles.label}>{t.labelLocation}</label>
+              <input type="text" required style={styles.modalInput} value={newLocation} onChange={e => setNewLocation(e.target.value)} />
 
-              <label style={styles.label}>اسم التاجر / الشركة</label>
+              <label style={styles.label}>{t.labelSeller}</label>
               <input type="text" required style={styles.modalInput} value={newSeller} onChange={e => setNewSeller(e.target.value)} />
 
-              <label style={styles.label}>رقم الهاتف (واتساب أو اتصال مع رمز الدولة)</label>
+              <label style={styles.label}>{t.labelContact}</label>
               <input type="text" required placeholder="+249..." style={styles.modalInput} value={newContact} onChange={e => setNewContact(e.target.value)} />
 
-              <label style={styles.label}>تفاصيل السلعة ومواصفاتها</label>
+              <label style={styles.label}>{t.labelDesc}</label>
               <textarea rows="3" style={styles.modalInput} value={newDesc} onChange={e => setNewDesc(e.target.value)}></textarea>
 
-              {/* === حقل رفع الصور والفيديو الجديد === */}
-              <label style={styles.label}>صور أو فيديو للسلعة (اختياري، حتى 5 ملفات)</label>
-              <input
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                style={styles.modalInput}
-                onChange={handleFileSelect}
-              />
+              <label style={styles.label}>{t.labelMedia}</label>
+              <input type="file" accept="image/*,video/*" multiple style={styles.modalInput} onChange={handleFileSelect} />
               {selectedFiles.length > 0 && (
                 <p style={{fontSize: 12, color: '#16213A', margin: '2px 0'}}>
-                  تم اختيار {selectedFiles.length} ملف/ملفات
+                  {t.filesSelected} {selectedFiles.length} {t.filesUnit}
                 </p>
               )}
               {uploadProgress && (
@@ -345,9 +577,90 @@ export default function App() {
               )}
 
               <button type="submit" style={styles.submitBtn} disabled={isUploading}>
-                {isUploading ? "⏳ جاري الرفع..." : "🚀 نشر العرض فوراً في السوق"}
+                {isUploading ? t.submitting : t.submitBtn}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== نافذة تسجيل الدخول / إنشاء حساب ==================== */}
+      {isAuthModalOpen && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:18, color:'#16213A'}}>
+                {authMode === 'login' ? t.authModalTitleLogin : t.authModalTitleSignup}
+              </h2>
+              <button onClick={() => { setIsAuthModalOpen(false); resetAuthFields(); }} style={styles.closeBtn}>❌</button>
+            </div>
+
+            {/* تبديل طريقة الدخول: بريد / هاتف */}
+            <div style={{display:'flex', gap:8, marginBottom:12}}>
+              <button
+                onClick={() => { setAuthMethod('email'); resetAuthFields(); }}
+                style={{...styles.authMethodBtn, backgroundColor: authMethod === 'email' ? '#16213A' : '#F5EFE6', color: authMethod === 'email' ? '#fff' : '#16213A'}}
+              >
+                {t.authMethodEmail}
+              </button>
+              <button
+                onClick={() => { setAuthMethod('phone'); resetAuthFields(); }}
+                style={{...styles.authMethodBtn, backgroundColor: authMethod === 'phone' ? '#16213A' : '#F5EFE6', color: authMethod === 'phone' ? '#fff' : '#16213A'}}
+              >
+                {t.authMethodPhone}
+              </button>
+            </div>
+
+            {/* === نموذج البريد الإلكتروني === */}
+            {authMethod === 'email' && (
+              <form onSubmit={handleEmailAuth} style={styles.modalBody}>
+                <label style={styles.label}>{t.emailLabel}</label>
+                <input type="email" required style={styles.modalInput} value={authEmail} onChange={e => setAuthEmail(e.target.value)} />
+
+                <label style={styles.label}>{t.passwordLabel}</label>
+                <input type="password" required minLength={6} style={styles.modalInput} value={authPassword} onChange={e => setAuthPassword(e.target.value)} />
+
+                {authError && <p style={{color:'#C84B31', fontSize:12}}>{authError}</p>}
+
+                <button type="submit" style={styles.submitBtn} disabled={authLoading}>
+                  {authMode === 'login' ? t.submitLoginBtn : t.submitSignupBtn}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(""); }}
+                  style={styles.switchAuthBtn}
+                >
+                  {authMode === 'login' ? t.switchToSignup : t.switchToLogin}
+                </button>
+              </form>
+            )}
+
+            {/* === نموذج الهاتف (OTP) === */}
+            {authMethod === 'phone' && (
+              <div style={styles.modalBody}>
+                {!otpSent ? (
+                  <form onSubmit={handleSendOtp} style={styles.modalBody}>
+                    <label style={styles.label}>{t.phoneLabel}</label>
+                    <input type="tel" required placeholder="+249..." style={styles.modalInput} value={authPhone} onChange={e => setAuthPhone(e.target.value)} />
+                    {authError && <p style={{color:'#C84B31', fontSize:12}}>{authError}</p>}
+                    <button type="submit" style={styles.submitBtn} disabled={authLoading}>
+                      {t.sendOtpBtn}
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyOtp} style={styles.modalBody}>
+                    <p style={{fontSize:12, color:'#54B435'}}>{t.otpSentMsg}</p>
+                    <label style={styles.label}>{t.otpLabel}</label>
+                    <input type="text" required style={styles.modalInput} value={otpCode} onChange={e => setOtpCode(e.target.value)} />
+                    {authError && <p style={{color:'#C84B31', fontSize:12}}>{authError}</p>}
+                    <button type="submit" style={styles.submitBtn} disabled={authLoading}>
+                      {t.verifyOtpBtn}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -356,15 +669,20 @@ export default function App() {
 }
 
 const styles = {
-  container: { backgroundColor: "#F5EFE6", minHeight: "100vh", padding: "12px", direction: "rtl", fontFamily: "sans-serif" },
+  container: { backgroundColor: "#F5EFE6", minHeight: "100vh", padding: "12px", fontFamily: "sans-serif" },
   header: { backgroundColor: "#16213A", color: "#fff", borderRadius: "12px", padding: "16px", marginBottom: "14px", textAlign: "center" },
   headerTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" },
+  headerRight: { display: "flex", alignItems: "center", gap: "8px" },
+  langBtn: { background: "rgba(255,255,255,0.15)", color: "#fff", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "16px", padding: "5px 10px", fontSize: "11px", cursor: "pointer" },
   title: { fontSize: "20px", margin: 0, fontWeight: "bold", color: "#F4F6F9" },
   logoIcon: { fontSize: "24px" },
-  subtitle: { fontSize: "13px", margin: "0 0 12px 0", color: "#d9cba3", lineHeight: "1.4" },
+  subtitle: { fontSize: "13px", margin: "0 0 10px 0", color: "#d9cba3", lineHeight: "1.4" },
+  authBar: { display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", marginBottom: "10px" },
+  authBarText: { fontSize: "12px", color: "#d9cba3" },
+  authBarBtn: { background: "#E9B824", color: "#16213A", border: "none", padding: "5px 14px", borderRadius: "16px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
   currencyBar: { display: "flex", gap: "6px", justifyContent: "center", alignItems: "center" },
   badge: { border: "none", padding: "5px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" },
-  catToggleRow: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "nowrap", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "6px", paddingLeft: "16px", paddingRight: "16px" },
+  catToggleRow: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "nowrap", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "6px" },
   catToggleBtn: { flexShrink: 0, border: "1px solid #d9cba3", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 600 },
   filterRow: { display: "flex", gap: "8px", marginBottom: "14px" },
   select: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#fff", fontSize: "14px" },
@@ -374,7 +692,6 @@ const styles = {
   cardHeader: { display: "flex", justifyContent: "space-between", marginBottom: "8px" },
   timeBadge: { fontSize: "11px", color: "#999" },
   catLabel: { backgroundColor: "#F5EFE6", color: "#786c5f", padding: "2px 8px", borderRadius: "12px", fontSize: "11px" },
-  // === ستايل صف الوسائط (صور/فيديو) ===
   mediaRow: { display: "flex", gap: "8px", overflowX: "auto", marginBottom: "10px", paddingBottom: "4px" },
   mediaThumb: { width: "90px", height: "90px", objectFit: "cover", borderRadius: "8px", flexShrink: 0, backgroundColor: "#eee" },
   productTitle: { fontSize: "16px", margin: "0 0 6px 0", color: "#16213A", fontWeight: "bold" },
@@ -394,5 +711,7 @@ const styles = {
   modalBody: { display: "flex", flexDirection: "column", gap: "8px" },
   label: { fontSize: "12px", fontWeight: "bold", color: "#444" },
   modalInput: { padding: "10px", borderRadius: "8px", border: "1px solid #CCC", fontSize: "14px", fontFamily: "sans-serif" },
-  submitBtn: { backgroundColor: "#16213A", color: "#FFF", border: "none", padding: "12px", borderRadius: "8px", fontSize: "15px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" }
+  submitBtn: { backgroundColor: "#16213A", color: "#FFF", border: "none", padding: "12px", borderRadius: "8px", fontSize: "15px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" },
+  authMethodBtn: { flex: 1, border: "1px solid #d9cba3", borderRadius: "8px", padding: "8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" },
+  switchAuthBtn: { background: "none", border: "none", color: "#16213A", fontSize: "12px", textDecoration: "underline", cursor: "pointer", marginTop: "4px" }
 };
