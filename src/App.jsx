@@ -83,6 +83,12 @@ const translations = {
     labelPrice: "السعر الرقمي",
     labelCurrency: "عملة العرض",
     labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
+    useMyLocationBtn: "📍 استخدم موقعي الحالي (GPS)",
+    locatingMsg: "جاري تحديد موقعك...",
+    locationCapturedMsg: "✅ تم تحديد إحداثيات موقعك بدقة",
+    geoUnsupportedAlert: "متصفحك لا يدعم تحديد الموقع الجغرافي.",
+    geoErrorAlert: "تعذّر تحديد موقعك. تأكد من السماح بالوصول للموقع من إعدادات المتصفح.",
+    viewOnMapBtn: "🗺️ عرض الموقع على الخريطة",
     labelSeller: "اسم التاجر / الشركة",
     labelContact: "رقم الهاتف (واتساب أو اتصال مع رمز الدولة)",
     labelDesc: "تفاصيل السلعة ومواصفاتها",
@@ -170,6 +176,12 @@ const translations = {
     labelPrice: "Prix",
     labelCurrency: "Devise de l'offre",
     labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
+    useMyLocationBtn: "📍 Utiliser ma position actuelle (GPS)",
+    locatingMsg: "Localisation en cours...",
+    locationCapturedMsg: "✅ Votre position a été enregistrée avec précision",
+    geoUnsupportedAlert: "Votre navigateur ne prend pas en charge la géolocalisation.",
+    geoErrorAlert: "Impossible de déterminer votre position. Vérifiez l'autorisation de localisation dans votre navigateur.",
+    viewOnMapBtn: "🗺️ Voir sur la carte",
     labelSeller: "Nom du vendeur / entreprise",
     labelContact: "Numéro de téléphone (WhatsApp ou appel, avec indicatif pays)",
     labelDesc: "Détails et spécifications du produit",
@@ -286,6 +298,8 @@ export default function App() {
   const [newCategory, setNewCategory] = useState("الثروة الحيوانية");
   const [newSubcategory, setNewSubcategory] = useState(SUBCATEGORIES["الثروة الحيوانية"][0]);
   const [newLocation, setNewLocation] = useState("السودان");
+  const [newGeo, setNewGeo] = useState(null); // { lat, lng } أو null
+  const [isLocating, setIsLocating] = useState(false);
   const [newPrice, setNewPrice] = useState("");
   const [newCurrency, setNewCurrency] = useState("LYD");
   const [newDesc, setNewDesc] = useState("");
@@ -602,6 +616,28 @@ export default function App() {
     }
   };
 
+  // ==================== تحديد الموقع عبر GPS الجهاز (مجاني، بدون Google Maps API) ====================
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert(t.geoUnsupportedAlert);
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setNewGeo({ lat: position.coords.latitude, lng: position.coords.longitude });
+        setIsLocating(false);
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        alert(t.geoErrorAlert);
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   // ==================== دوال رفع الوسائط (Cloudinary) ====================
 
   const handleFileSelect = (e) => {
@@ -663,6 +699,7 @@ export default function App() {
       category: newCategory,
       subcategory: newSubcategory,
       location: newLocation,
+      geo: newGeo || null,
       desc: newDesc || "-",
       price: parseFloat(newPrice),
       currency: newCurrency,
@@ -684,6 +721,7 @@ export default function App() {
     setIsModalOpen(false);
     setNewTitle(""); setNewPrice(""); setNewDesc(""); setNewSeller(""); setNewContact(""); setSelectedFiles([]);
     setNewSubcategory(SUBCATEGORIES[newCategory][0]);
+    setNewGeo(null);
   };
 
   const filteredProducts = products.filter(p => {
@@ -854,7 +892,19 @@ export default function App() {
               </div>
 
               <h3 style={styles.productTitle}>{product.title}</h3>
-              <p style={styles.locationText}>{t.locationPrefix} {product.location}</p>
+              <p style={styles.locationText}>
+                {t.locationPrefix} {product.location}
+                {product.geo && (
+                  <a
+                    href={`https://www.google.com/maps?q=${product.geo.lat},${product.geo.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.mapLink}
+                  >
+                    {t.viewOnMapBtn}
+                  </a>
+                )}
+              </p>
               <p style={styles.descText}>{product.desc}</p>
               <div style={styles.divider}></div>
               <div style={styles.priceRow}>
@@ -1043,6 +1093,10 @@ export default function App() {
 
               <label style={styles.label}>{t.labelLocation}</label>
               <input type="text" required style={styles.modalInput} value={newLocation} onChange={e => setNewLocation(e.target.value)} />
+              <button type="button" onClick={handleUseMyLocation} disabled={isLocating} style={styles.geoBtn}>
+                {isLocating ? t.locatingMsg : t.useMyLocationBtn}
+              </button>
+              {newGeo && <p style={{fontSize: 12, color: '#54B435', margin: '2px 0'}}>{t.locationCapturedMsg}</p>}
 
               <label style={styles.label}>{t.labelSeller}</label>
               <input type="text" required style={styles.modalInput} value={newSeller} onChange={e => setNewSeller(e.target.value)} />
@@ -1205,6 +1259,10 @@ const styles = {
   submitBtn: { backgroundColor: "#16213A", color: "#FFF", border: "none", padding: "12px", borderRadius: "8px", fontSize: "15px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" },
   authMethodBtn: { flex: 1, border: "1px solid #d9cba3", borderRadius: "8px", padding: "8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" },
   switchAuthBtn: { background: "none", border: "none", color: "#16213A", fontSize: "12px", textDecoration: "underline", cursor: "pointer", marginTop: "4px" },
+
+  // ==== موقع GPS ====
+  geoBtn: { backgroundColor: "#F5EFE6", color: "#16213A", border: "1px dashed #A87C11", borderRadius: "8px", padding: "8px", fontSize: "12.5px", fontWeight: "bold", cursor: "pointer", marginTop: "2px" },
+  mapLink: { marginInlineStart: "8px", color: "#16213A", fontWeight: "bold", textDecoration: "underline", fontSize: "12px" },
 
   // ==== الأيقونات الدائرية للأقسام ====
   catCircleRow: { display: "flex", gap: "16px", marginBottom: "14px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" },
