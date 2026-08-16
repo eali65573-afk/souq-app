@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, addDoc, onSnapshot, query, orderBy, serverTimestamp,
-  doc, setDoc, getDoc, updateDoc, where, limit
+  doc, setDoc, getDoc, updateDoc, deleteDoc, where, limit, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 
 // ==== إعدادات Cloudinary ====
@@ -80,6 +80,30 @@ const translations = {
     labelSubcategory: "التصنيف الفرعي",
     subAll: "الكل",
     sponsoredTitle: "إعلانات مموّلة",
+
+    // === مميزات إضافية ===
+    favoritesTitle: "المفضلة",
+    noFavorites: "لا توجد عروض محفوظة في المفضلة بعد.",
+    addToFavorites: "أضف للمفضلة",
+    removeFromFavorites: "إزالة من المفضلة",
+    shareWhatsapp: "مشاركة عبر واتساب",
+    sortLabel: "الترتيب",
+    sortNewest: "الأحدث",
+    sortPriceLow: "السعر: الأقل أولاً",
+    sortPriceHigh: "السعر: الأعلى أولاً",
+    reportBtn: "🚩 الإبلاغ عن هذا العرض",
+    reportReasonPrompt: "ما سبب الإبلاغ عن هذا العرض؟",
+    reportSentMsg: "تم إرسال بلاغك، شكرًا لمساعدتك في حماية السوق.",
+    reportRequiresLogin: "يجب تسجيل الدخول أولاً للإبلاغ عن عرض.",
+    markSoldBtn: "✅ تحديد كـ: تم البيع",
+    markActiveBtn: "🔄 إعادة تفعيل العرض",
+    soldBadge: "تم البيع",
+    editListingBtn: "✏️ تعديل العرض",
+    deleteListingBtn: "🗑️ حذف العرض",
+    deleteConfirmMsg: "هل أنت متأكد من حذف هذا العرض نهائيًا؟",
+    editModalTitle: "تعديل العرض",
+    saveChangesBtn: "حفظ التعديلات",
+    verifiedBadge: "✅ بائع موثّق",
     labelPrice: "السعر الرقمي",
     labelCurrency: "عملة العرض",
     labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
@@ -173,6 +197,30 @@ const translations = {
     labelSubcategory: "Sous-catégorie",
     subAll: "Toutes",
     sponsoredTitle: "Annonces sponsorisées",
+
+    // === Fonctionnalités supplémentaires ===
+    favoritesTitle: "Favoris",
+    noFavorites: "Aucune annonce enregistrée dans les favoris.",
+    addToFavorites: "Ajouter aux favoris",
+    removeFromFavorites: "Retirer des favoris",
+    shareWhatsapp: "Partager via WhatsApp",
+    sortLabel: "Trier par",
+    sortNewest: "Plus récent",
+    sortPriceLow: "Prix : du plus bas",
+    sortPriceHigh: "Prix : du plus haut",
+    reportBtn: "🚩 Signaler cette annonce",
+    reportReasonPrompt: "Pourquoi signalez-vous cette annonce ?",
+    reportSentMsg: "Votre signalement a été envoyé, merci de nous aider à protéger la place de marché.",
+    reportRequiresLogin: "Vous devez vous connecter pour signaler une annonce.",
+    markSoldBtn: "✅ Marquer comme : Vendu",
+    markActiveBtn: "🔄 Réactiver l'annonce",
+    soldBadge: "Vendu",
+    editListingBtn: "✏️ Modifier l'annonce",
+    deleteListingBtn: "🗑️ Supprimer l'annonce",
+    deleteConfirmMsg: "Voulez-vous vraiment supprimer définitivement cette annonce ?",
+    editModalTitle: "Modifier l'annonce",
+    saveChangesBtn: "Enregistrer les modifications",
+    verifiedBadge: "✅ Vendeur vérifié",
     labelPrice: "Prix",
     labelCurrency: "Devise de l'offre",
     labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
@@ -336,6 +384,14 @@ export default function App() {
   // ==================== حالة الإعلانات المموّلة ====================
   const [sponsoredAds, setSponsoredAds] = useState([]);
 
+  // ==================== حالات المفضلة، الترتيب، التعديل، الإبلاغ ====================
+  const [favoriteIds, setFavoriteIds] = useState([]); // مصفوفة معرّفات العروض المحفوظة
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [sortOption, setSortOption] = useState("newest"); // newest | priceLow | priceHigh
+  const [editingProduct, setEditingProduct] = useState(null); // المنتج الجاري تعديله أو null
+  const [reportingProduct, setReportingProduct] = useState(null); // المنتج الجاري الإبلاغ عنه أو null
+  const [reportReasonText, setReportReasonText] = useState("");
+
   // متابعة حالة تسجيل الدخول تلقائياً عند تحميل التطبيق
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -352,6 +408,15 @@ export default function App() {
     }, (err) => console.error("Ads sync error:", err));
     return () => unsubscribe();
   }, []);
+
+  // مزامنة قائمة المفضلة الخاصة بالمستخدم الحالي
+  useEffect(() => {
+    if (!currentUser) { setFavoriteIds([]); return; }
+    const unsubscribe = onSnapshot(doc(db, "favorites", currentUser.uid), (snap) => {
+      setFavoriteIds(snap.exists() ? (snap.data().productIds || []) : []);
+    }, (err) => console.error("Favorites sync error:", err));
+    return () => unsubscribe();
+  }, [currentUser]);
 
   // مزامنة العروض المنشورة مع Firestore فور تحميل التطبيق (تحديث فوري + حفظ دائم)
   useEffect(() => {
@@ -616,6 +681,105 @@ export default function App() {
     }
   };
 
+  // ==================== المفضلة ====================
+
+  const toggleFavorite = async (productId) => {
+    if (!currentUser) {
+      openAuthModal();
+      return;
+    }
+    const isFav = favoriteIds.includes(productId);
+    const favRef = doc(db, "favorites", currentUser.uid);
+    try {
+      const snap = await getDoc(favRef);
+      if (!snap.exists()) {
+        await setDoc(favRef, { productIds: isFav ? [] : [productId] });
+      } else {
+        await updateDoc(favRef, {
+          productIds: isFav ? arrayRemove(productId) : arrayUnion(productId)
+        });
+      }
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    }
+  };
+
+  // ==================== مشاركة عبر واتساب ====================
+
+  const shareOnWhatsapp = (product) => {
+    const text = `${product.title} - ${formatPrice(product.price, product.currency)} - ${window.location.href}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+  };
+
+  // ==================== الإبلاغ عن عرض ====================
+
+  const submitReport = async (reason) => {
+    if (!currentUser) {
+      alert(t.reportRequiresLogin);
+      openAuthModal();
+      return;
+    }
+    if (!reportingProduct || !reason || !reason.trim()) { setReportingProduct(null); return; }
+    try {
+      await addDoc(collection(db, "reports"), {
+        productId: String(reportingProduct.id),
+        productTitle: reportingProduct.title,
+        reason: reason.trim(),
+        reportedBy: currentUser.uid,
+        createdAt: serverTimestamp()
+      });
+      alert(t.reportSentMsg);
+    } catch (err) {
+      console.error("Failed to submit report:", err);
+    }
+    setReportingProduct(null);
+  };
+
+  // ==================== تحديد كـ"تم البيع" / إعادة تفعيل ====================
+
+  const toggleSoldStatus = async (product) => {
+    try {
+      await updateDoc(doc(db, "products", product.id), { sold: !product.sold });
+    } catch (err) {
+      console.error("Failed to update sold status:", err);
+    }
+  };
+
+  // ==================== حذف عرض ====================
+
+  const deleteListing = async (product) => {
+    if (!window.confirm(t.deleteConfirmMsg)) return;
+    try {
+      await deleteDoc(doc(db, "products", product.id));
+    } catch (err) {
+      console.error("Failed to delete listing:", err);
+    }
+  };
+
+  // ==================== تعديل عرض ====================
+
+  const openEditModal = (product) => {
+    setEditingProduct({ ...product });
+  };
+
+  const saveEditedListing = async (e) => {
+    e.preventDefault();
+    if (!editingProduct) return;
+    try {
+      await updateDoc(doc(db, "products", editingProduct.id), {
+        title: editingProduct.title,
+        desc: editingProduct.desc,
+        price: parseFloat(editingProduct.price),
+        currency: editingProduct.currency,
+        location: editingProduct.location
+      });
+      setEditingProduct(null);
+    } catch (err) {
+      console.error("Failed to save edited listing:", err);
+      alert(language === 'ar' ? "تعذّر حفظ التعديلات، حاول مجددًا." : "Impossible d'enregistrer les modifications.");
+    }
+  };
+
   // ==================== تحديد الموقع عبر GPS الجهاز (مجاني، بدون Google Maps API) ====================
 
   const handleUseMyLocation = () => {
@@ -649,9 +813,39 @@ export default function App() {
     setSelectedFiles(validFiles);
   };
 
+  // ضغط الصور قبل الرفع لتقليل استهلاك البيانات على شبكات الإنترنت الضعيفة/المكلفة
+  const compressImage = (file, maxDimension = 1280, quality = 0.72) => {
+    return new Promise((resolve) => {
+      if (!file.type.startsWith("image/")) { resolve(file); return; } // لا تضغط الفيديوهات
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (e) => { img.src = e.target.result; };
+      reader.onerror = () => resolve(file);
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) { height = Math.round(height * (maxDimension / width)); width = maxDimension; }
+          else { width = Math.round(width * (maxDimension / height)); height = maxDimension; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (!blob) { resolve(file); return; }
+          resolve(new File([blob], file.name, { type: "image/jpeg" }));
+        }, "image/jpeg", quality);
+      };
+      img.onerror = () => resolve(file);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const uploadSingleFileToCloudinary = async (file) => {
+    const compressedFile = await compressImage(file);
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", compressedFile);
     formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
     const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
     const response = await fetch(endpoint, { method: "POST", body: formData });
@@ -729,7 +923,12 @@ export default function App() {
     const matchesSubcategory = selectedSubcategory === "الكل" || p.subcategory === selectedSubcategory;
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || p.desc.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCountry = countryFilter === "كل الدول" || p.location.includes(countryFilter);
-    return matchesCategory && matchesSubcategory && matchesSearch && matchesCountry;
+    const matchesFavorites = !showFavoritesOnly || favoriteIds.includes(p.id);
+    return matchesCategory && matchesSubcategory && matchesSearch && matchesCountry && matchesFavorites;
+  }).sort((a, b) => {
+    if (sortOption === "priceLow") return (a.price || 0) - (b.price || 0);
+    if (sortOption === "priceHigh") return (b.price || 0) - (a.price || 0);
+    return 0; // "newest" — الترتيب الأصلي من Firestore (الأحدث أولاً) يبقى كما هو
   });
 
   const userDisplayLabel = currentUser ? (currentUser.email || currentUser.phoneNumber || "") : "";
@@ -863,18 +1062,42 @@ export default function App() {
         </div>
       </div>
 
+      <div style={styles.filterRow}>
+        <select style={styles.select} value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+          <option value="newest">{t.sortNewest}</option>
+          <option value="priceLow">{t.sortPriceLow}</option>
+          <option value="priceHigh">{t.sortPriceHigh}</option>
+        </select>
+        <button
+          onClick={() => currentUser ? setShowFavoritesOnly(v => !v) : openAuthModal()}
+          style={{
+            ...styles.favToggleBtn,
+            backgroundColor: showFavoritesOnly ? "#C84B31" : "#fff",
+            color: showFavoritesOnly ? "#fff" : "#C84B31"
+          }}
+        >
+          {showFavoritesOnly ? "❤️" : "🤍"} {t.favoritesTitle}
+        </button>
+      </div>
+
       <main style={styles.productList}>
         {filteredProducts.length === 0 ? (
           <p style={{textAlign:'center', color:'#777', marginTop:20}}>{t.noResults}</p>
         ) : (
           filteredProducts.map(product => (
-            <div key={product.id} style={styles.card}>
+            <div key={product.id} style={{...styles.card, opacity: product.sold ? 0.6 : 1}}>
               <div style={styles.cardHeader}>
                 <span style={styles.timeBadge}>{product.date}</span>
-                <span style={styles.catLabel}>
-                  {product.category === "الثروة الحيوانية" ? t.catLivestock : t.catAgri}
-                  {product.subcategory ? ` · ${displaySubcategory(product.subcategory, language)}` : ""}
-                </span>
+                <div style={{display: "flex", alignItems: "center", gap: "8px"}}>
+                  {product.sold && <span style={styles.soldBadge}>{t.soldBadge}</span>}
+                  <span style={styles.catLabel}>
+                    {product.category === "الثروة الحيوانية" ? t.catLivestock : t.catAgri}
+                    {product.subcategory ? ` · ${displaySubcategory(product.subcategory, language)}` : ""}
+                  </span>
+                  <button onClick={() => toggleFavorite(product.id)} style={styles.heartBtn} aria-label={t.addToFavorites}>
+                    {favoriteIds.includes(product.id) ? "❤️" : "🤍"}
+                  </button>
+                </div>
               </div>
 
               <div style={styles.mediaRow}>
@@ -917,6 +1140,21 @@ export default function App() {
                   <a href={`tel:${product.contact}`} style={styles.contactBtn}>{t.callSellerBtn}</a>
                 </div>
               </div>
+
+              <div style={styles.secondaryActionsRow}>
+                <button onClick={() => shareOnWhatsapp(product)} style={styles.secondaryActionBtn}>{t.shareWhatsapp}</button>
+                <button onClick={() => { if (!currentUser) { alert(t.reportRequiresLogin); openAuthModal(); return; } setReportingProduct(product); }} style={styles.secondaryActionBtn}>{t.reportBtn}</button>
+              </div>
+
+              {currentUser && product.ownerUid === currentUser.uid && (
+                <div style={styles.ownerActionsRow}>
+                  <button onClick={() => openEditModal(product)} style={styles.ownerActionBtn}>{t.editListingBtn}</button>
+                  <button onClick={() => toggleSoldStatus(product)} style={styles.ownerActionBtn}>
+                    {product.sold ? t.markActiveBtn : t.markSoldBtn}
+                  </button>
+                  <button onClick={() => deleteListing(product)} style={{...styles.ownerActionBtn, color: '#C84B31', borderColor: '#C84B31'}}>{t.deleteListingBtn}</button>
+                </div>
+              )}
             </div>
           ))
         )}
@@ -1043,6 +1281,85 @@ export default function App() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== نافذة الإبلاغ عن عرض ==================== */}
+      {reportingProduct && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:16, color:'#16213A'}}>{t.reportBtn}</h2>
+              <button onClick={() => { setReportingProduct(null); setReportReasonText(""); }} style={styles.closeBtn}>❌</button>
+            </div>
+            <p style={{fontSize:13, color:'#555', margin:'4px 0 10px'}}>{t.reportReasonPrompt}</p>
+            <textarea
+              style={{...styles.modalInput, minHeight: '80px'}}
+              value={reportReasonText}
+              onChange={e => setReportReasonText(e.target.value)}
+            />
+            <button
+              onClick={async () => { await submitReport(reportReasonText); setReportReasonText(""); }}
+              style={styles.submitBtn}
+            >
+              {t.sendBtn}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== نافذة تعديل عرض ==================== */}
+      {editingProduct && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:16, color:'#16213A'}}>{t.editModalTitle}</h2>
+              <button onClick={() => setEditingProduct(null)} style={styles.closeBtn}>❌</button>
+            </div>
+            <form onSubmit={saveEditedListing}>
+              <label style={styles.label}>{t.labelTitle}</label>
+              <input
+                type="text" required style={styles.modalInput}
+                value={editingProduct.title}
+                onChange={e => setEditingProduct({...editingProduct, title: e.target.value})}
+              />
+              <label style={styles.label}>{t.labelDesc}</label>
+              <textarea
+                style={{...styles.modalInput, minHeight: '70px'}}
+                value={editingProduct.desc}
+                onChange={e => setEditingProduct({...editingProduct, desc: e.target.value})}
+              />
+              <div style={{display:'flex', gap:10}}>
+                <div style={{flex:1}}>
+                  <label style={styles.label}>{t.labelPrice}</label>
+                  <input
+                    type="number" required style={styles.modalInput}
+                    value={editingProduct.price}
+                    onChange={e => setEditingProduct({...editingProduct, price: e.target.value})}
+                  />
+                </div>
+                <div style={{flex:1}}>
+                  <label style={styles.label}>{t.labelCurrency}</label>
+                  <select
+                    style={styles.modalInput}
+                    value={editingProduct.currency}
+                    onChange={e => setEditingProduct({...editingProduct, currency: e.target.value})}
+                  >
+                    <option value="LYD">🇱🇾 {t.currencyLYD}</option>
+                    <option value="XAF">🇹🇩 {t.currencyXAF}</option>
+                    <option value="SDG">🇸🇩 {t.currencySDG}</option>
+                  </select>
+                </div>
+              </div>
+              <label style={styles.label}>{t.labelLocation}</label>
+              <input
+                type="text" required style={styles.modalInput}
+                value={editingProduct.location}
+                onChange={e => setEditingProduct({...editingProduct, location: e.target.value})}
+              />
+              <button type="submit" style={styles.submitBtn}>{t.saveChangesBtn}</button>
+            </form>
           </div>
         </div>
       )}
@@ -1229,6 +1546,7 @@ const styles = {
   catIcon: { width: "20px", height: "20px", borderRadius: "50%", objectFit: "cover" },
   filterRow: { display: "flex", gap: "8px", marginBottom: "14px" },
   select: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#fff", fontSize: "14px" },
+  favToggleBtn: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #C84B31", fontSize: "13px", fontWeight: "bold", cursor: "pointer" },
   input: { flex: 2, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px", width: "100%", boxSizing: "border-box" },
   searchWrap: { position: "relative", flex: 2, display: "flex", alignItems: "center" },
   searchIcon: { position: "absolute", fontSize: "14px", opacity: 0.6, pointerEvents: "none" },
@@ -1246,6 +1564,14 @@ const styles = {
   priceRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" },
   mainPrice: { fontSize: "18px", fontWeight: "bold", color: "#A87C11" },
   cardFooter: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+
+  // ==== المفضلة، الحالة، الأزرار الثانوية ====
+  heartBtn: { background: "none", border: "none", fontSize: "18px", cursor: "pointer", padding: 0, lineHeight: 1 },
+  soldBadge: { backgroundColor: "#C84B31", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px", borderRadius: "6px" },
+  secondaryActionsRow: { display: "flex", gap: "6px", marginTop: "8px", borderTop: "1px solid #eee", paddingTop: "8px" },
+  secondaryActionBtn: { flex: 1, background: "none", border: "1px solid #d9cba3", borderRadius: "6px", padding: "6px", fontSize: "11.5px", color: "#555", cursor: "pointer" },
+  ownerActionsRow: { display: "flex", gap: "6px", marginTop: "6px" },
+  ownerActionBtn: { flex: 1, backgroundColor: "#F5EFE6", border: "1px solid #d9cba3", borderRadius: "6px", padding: "6px", fontSize: "11.5px", fontWeight: "bold", color: "#16213A", cursor: "pointer" },
   sellerName: { fontSize: "13px", fontWeight: "bold", color: "#555" },
   contactBtn: { backgroundColor: "#54B435", color: "#fff", textDecoration: 'none', padding: "6px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold" },
   fab: { position: "fixed", bottom: "20px", left: "20px", right: "20px", backgroundColor: "#A64B2A", color: "#fff", border: "none", padding: "14px", borderRadius: "30px", fontSize: "15px", fontWeight: "bold", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", zIndex: 90, cursor: 'pointer', textAlign: 'center' },
