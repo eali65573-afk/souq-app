@@ -121,6 +121,13 @@ const translations = {
     stillAvailableSold: "لا، تم البيع",
     equivalentPricesLabel: "ما يعادلها تقريبًا:",
     newMatchNotif: "عرض جديد يطابق بحثك المحفوظ:",
+
+    // === إخلاء مسؤولية الإعلانات المالية ===
+    financialServiceBadge: "⚠️ خدمة مالية خارجية",
+    financialDisclaimerTitle: "قبل المتابعة إلى هذه الخدمة",
+    financialDisclaimerText: "هذا إعلان مموّل من طرف خارجي مستقل يقدّم خدمات تحويل أموال أو صرف عملات. \"السوق المفتوح\" لا يقدّم هذه الخدمة بنفسه، ولا يضمن ترخيصها أو موثوقيتها أو دقة أسعارها، ولا يتحمّل أي مسؤولية عن أي معاملة مالية تتم مع هذا الطرف. تحقق بنفسك من هوية الجهة وترخيصها قبل إرسال أي أموال.",
+    financialDisclaimerAgree: "فهمت، متابعة إلى الخدمة",
+    financialDisclaimerCancel: "إلغاء",
     labelPrice: "السعر الرقمي",
     labelCurrency: "عملة العرض",
     labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
@@ -254,6 +261,12 @@ const translations = {
     stillAvailableSold: "Non, vendu",
     equivalentPricesLabel: "Équivalent approximatif :",
     newMatchNotif: "Nouvelle annonce correspondant à votre recherche enregistrée :",
+
+    financialServiceBadge: "⚠️ Service financier externe",
+    financialDisclaimerTitle: "Avant de continuer vers ce service",
+    financialDisclaimerText: "Ceci est une publicité sponsorisée par un tiers indépendant proposant des services de transfert d'argent ou de change. « Souq Al-Maftouh » ne fournit pas ce service lui-même, ne garantit ni son agrément, ni sa fiabilité, ni l'exactitude de ses taux, et n'assume aucune responsabilité pour toute transaction financière avec ce tiers. Vérifiez vous-même l'identité et l'agrément de cette entité avant d'envoyer des fonds.",
+    financialDisclaimerAgree: "Compris, continuer vers le service",
+    financialDisclaimerCancel: "Annuler",
     labelPrice: "Prix",
     labelCurrency: "Devise de l'offre",
     labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
@@ -433,6 +446,7 @@ export default function App() {
   const [staleListings, setStaleListings] = useState([]); // عروض المستخدم الحالي الأقدم من 14 يومًا وما زالت نشطة
   const [exchangeRates, setExchangeRates] = useState(FALLBACK_EXCHANGE_RATES);
   const [ratesUpdatedAt, setRatesUpdatedAt] = useState(null); // تاريخ آخر تحديث لأسعار الصرف الحية
+  const [financialDisclaimerAd, setFinancialDisclaimerAd] = useState(null); // الإعلان المالي الجاري عرض إخلاء المسؤولية له
   const [isStaleModalOpen, setIsStaleModalOpen] = useState(false);
 
   // متابعة حالة تسجيل الدخول تلقائياً عند تحميل التطبيق
@@ -1170,6 +1184,16 @@ export default function App() {
           <h3 style={styles.sponsoredTitle}>{t.sponsoredTitle}</h3>
           <div style={styles.sponsoredRow}>
             {sponsoredAds.map(ad => {
+              const isFinancial = ad.category === "financial";
+              if (isFinancial) {
+                return (
+                  <button key={ad.id} onClick={() => setFinancialDisclaimerAd(ad)} style={{...styles.sponsoredCard, position: "relative", border: "1px solid #E9B824"}}>
+                    <span style={styles.financialBadge}>{t.financialServiceBadge}</span>
+                    <img src={ad.imageUrl} alt={ad.title || ""} style={styles.sponsoredImg} />
+                    <span style={styles.sponsoredLabel}>{ad.title}</span>
+                  </button>
+                );
+              }
               const CardTag = ad.linkUrl ? "a" : "div";
               const linkProps = ad.linkUrl ? { href: ad.linkUrl, target: "_blank", rel: "noopener noreferrer" } : {};
               return (
@@ -1576,6 +1600,30 @@ export default function App() {
         </div>
       )}
 
+      {/* ==================== نافذة إخلاء مسؤولية الخدمات المالية (إلزامية قبل المتابعة) ==================== */}
+      {financialDisclaimerAd && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:16, color:'#16213A'}}>{t.financialDisclaimerTitle}</h2>
+              <button onClick={() => setFinancialDisclaimerAd(null)} style={styles.closeBtn}>❌</button>
+            </div>
+            <p style={{fontSize:13, color:'#555', lineHeight:1.6, margin:'6px 0 16px'}}>{t.financialDisclaimerText}</p>
+            <div style={{display:'flex', gap:'8px'}}>
+              <button
+                onClick={() => { window.open(financialDisclaimerAd.linkUrl, "_blank", "noopener,noreferrer"); setFinancialDisclaimerAd(null); }}
+                style={{...styles.submitBtn, marginTop:0, flex:1}}
+              >
+                {t.financialDisclaimerAgree}
+              </button>
+              <button onClick={() => setFinancialDisclaimerAd(null)} style={{...styles.ownerActionBtn, flex:1}}>
+                {t.financialDisclaimerCancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ==================== نافذة بحوثي المحفوظة ==================== */}
       {isSavedSearchesOpen && (
         <div style={styles.overlay}>
@@ -1917,6 +1965,7 @@ const styles = {
   },
   sponsoredImg: { width: "94px", height: "70px", objectFit: "cover", borderRadius: "10px", backgroundColor: "#F5EFE6" },
   sponsoredLabel: { fontSize: "12px", fontWeight: 600, color: "#16213A", textAlign: "center", lineHeight: "1.3" },
+  financialBadge: { position: "absolute", top: "-6px", insetInlineStart: "-4px", backgroundColor: "#E9B824", color: "#16213A", fontSize: "8.5px", fontWeight: "bold", padding: "2px 5px", borderRadius: "5px", lineHeight: 1.3 },
 
   // ==== أزرار المراسلة والاتصال على بطاقة المنتج ====
   chatBtn: { backgroundColor: "#16213A", color: "#fff", border: "none", padding: "6px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
