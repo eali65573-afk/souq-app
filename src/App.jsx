@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { auth, db } from './firebase';
 import {
   onAuthStateChanged,
@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, addDoc, onSnapshot, query, orderBy, serverTimestamp,
-  doc, setDoc, getDoc, updateDoc, deleteDoc, where, limit, arrayUnion, arrayRemove
+  doc, setDoc, getDoc, updateDoc, deleteDoc, where, limit, arrayUnion, arrayRemove, increment, getDocs
 } from 'firebase/firestore';
 
 // ==== إعدادات Cloudinary ====
@@ -104,6 +104,23 @@ const translations = {
     editModalTitle: "تعديل العرض",
     saveChangesBtn: "حفظ التعديلات",
     verifiedBadge: "✅ بائع موثّق",
+
+    // === تنبيهات البحث، المشاهدات، متجر التاجر، انتهاء الصلاحية، الأسعار المتعددة ===
+    saveSearchBtn: "🔔 احفظ هذا البحث",
+    savedSearchesTitle: "بحوثي المحفوظة",
+    noSavedSearches: "لا توجد بحوث محفوظة بعد.",
+    searchSavedMsg: "✅ تم حفظ البحث، سنُعلمك عند نشر عرض مطابق.",
+    removeSavedSearch: "حذف",
+    savedSearchSummary: "بحث محفوظ",
+    viewsLabel: "مشاهدة",
+    sellerProfileTitle: "عروض هذا التاجر",
+    noSellerListings: "لا توجد عروض أخرى نشطة لهذا التاجر حاليًا.",
+    stillAvailableTitle: "هل لا يزال هذا العرض متاحًا؟",
+    stillAvailableDesc: "نُشر هذا العرض منذ أكثر من أسبوعين. حدّث حالته حتى يبقى السوق دقيقًا للجميع.",
+    stillAvailableYes: "نعم، لا يزال متاحًا",
+    stillAvailableSold: "لا، تم البيع",
+    equivalentPricesLabel: "ما يعادلها تقريبًا:",
+    newMatchNotif: "عرض جديد يطابق بحثك المحفوظ:",
     labelPrice: "السعر الرقمي",
     labelCurrency: "عملة العرض",
     labelLocation: "الموقع الحالي والبلد (مثال: الخرطوم، السودان)",
@@ -221,6 +238,22 @@ const translations = {
     editModalTitle: "Modifier l'annonce",
     saveChangesBtn: "Enregistrer les modifications",
     verifiedBadge: "✅ Vendeur vérifié",
+
+    saveSearchBtn: "🔔 Enregistrer cette recherche",
+    savedSearchesTitle: "Mes recherches enregistrées",
+    noSavedSearches: "Aucune recherche enregistrée pour le moment.",
+    searchSavedMsg: "✅ Recherche enregistrée, nous vous avertirons d'une nouvelle annonce correspondante.",
+    removeSavedSearch: "Supprimer",
+    savedSearchSummary: "Recherche enregistrée",
+    viewsLabel: "vues",
+    sellerProfileTitle: "Autres annonces de ce vendeur",
+    noSellerListings: "Aucune autre annonce active pour ce vendeur actuellement.",
+    stillAvailableTitle: "Cette annonce est-elle toujours disponible ?",
+    stillAvailableDesc: "Cette annonce a été publiée il y a plus de deux semaines. Mettez à jour son statut pour garder le marché à jour.",
+    stillAvailableYes: "Oui, toujours disponible",
+    stillAvailableSold: "Non, vendu",
+    equivalentPricesLabel: "Équivalent approximatif :",
+    newMatchNotif: "Nouvelle annonce correspondant à votre recherche enregistrée :",
     labelPrice: "Prix",
     labelCurrency: "Devise de l'offre",
     labelLocation: "Emplacement actuel et pays (ex : Khartoum, Soudan)",
@@ -291,7 +324,8 @@ const translations = {
 };
 
 // أسعار الصرف الثابتة مقارنة بالدولار (تحديث 2026)
-const exchangeRates = { "LYD": 4.80, "XAF": 600, "SDG": 650 };
+// أسعار صرف احتياطية (تُستخدم فقط إذا تعذّر جلب الأسعار الحية أو عند أول تحميل قبل اكتمال الجلب)
+const FALLBACK_EXCHANGE_RATES = { "LYD": 4.80, "XAF": 600, "SDG": 650 };
 
 // ==== رموز العملات الصحيحة (مصححة) وأعلام الدول المرتبطة بها ====
 const CURRENCY_FLAG = { LYD: "🇱🇾", XAF: "🇹🇩", SDG: "🇸🇩" };
@@ -392,12 +426,53 @@ export default function App() {
   const [reportingProduct, setReportingProduct] = useState(null); // المنتج الجاري الإبلاغ عنه أو null
   const [reportReasonText, setReportReasonText] = useState("");
 
+  // ==================== حالات: البحث المحفوظ، متجر التاجر، فحص "لا يزال متاحًا" ====================
+  const [savedSearches, setSavedSearches] = useState([]);
+  const [isSavedSearchesOpen, setIsSavedSearchesOpen] = useState(false);
+  const [viewingSeller, setViewingSeller] = useState(null); // { ownerUid, seller } أو null
+  const [staleListings, setStaleListings] = useState([]); // عروض المستخدم الحالي الأقدم من 14 يومًا وما زالت نشطة
+  const [exchangeRates, setExchangeRates] = useState(FALLBACK_EXCHANGE_RATES);
+  const [ratesUpdatedAt, setRatesUpdatedAt] = useState(null); // تاريخ آخر تحديث لأسعار الصرف الحية
+  const [isStaleModalOpen, setIsStaleModalOpen] = useState(false);
+
   // متابعة حالة تسجيل الدخول تلقائياً عند تحميل التطبيق
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
     });
     return () => unsubscribe();
+  }, []);
+
+  // جلب أسعار الصرف الحية (مجاني، بدون مفتاح API) مع تخزين مؤقت يوم واحد لتفادي طلبات زائدة
+  useEffect(() => {
+    const CACHE_KEY = "souq_exchange_rates_cache_v1";
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (cached && cached.rates && (Date.now() - cached.fetchedAt) < ONE_DAY_MS) {
+        setExchangeRates(cached.rates);
+        setRatesUpdatedAt(cached.fetchedAt);
+        return; // البيانات المخزّنة لا تزال حديثة (أقل من 24 ساعة)، لا داعي لطلب جديد
+      }
+    } catch (e) { /* تجاهل أخطاء القراءة من التخزين المحلي */ }
+
+    fetch("https://open.er-api.com/v6/latest/USD")
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.result === "success" && data.rates) {
+          const liveRates = {
+            LYD: data.rates.LYD || FALLBACK_EXCHANGE_RATES.LYD,
+            XAF: data.rates.XAF || FALLBACK_EXCHANGE_RATES.XAF,
+            SDG: data.rates.SDG || FALLBACK_EXCHANGE_RATES.SDG
+          };
+          setExchangeRates(liveRates);
+          setRatesUpdatedAt(Date.now());
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ rates: liveRates, fetchedAt: Date.now() }));
+          } catch (e) { /* تجاهل أخطاء الكتابة (مثلاً وضع التصفح الخاص) */ }
+        }
+      })
+      .catch(err => console.error("Exchange rate fetch failed, using fallback rates:", err));
   }, []);
 
   // مزامنة الإعلانات المموّلة النشطة (تُدار يدوياً من Firebase Console حالياً)
@@ -418,6 +493,16 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUser]);
 
+  // مزامنة بحوثي المحفوظة
+  useEffect(() => {
+    if (!currentUser) { setSavedSearches([]); return; }
+    const q = query(collection(db, "savedSearches"), where("userId", "==", currentUser.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setSavedSearches(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Saved searches sync error:", err));
+    return () => unsubscribe();
+  }, [currentUser]);
+
   // مزامنة العروض المنشورة مع Firestore فور تحميل التطبيق (تحديث فوري + حفظ دائم)
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
@@ -429,6 +514,30 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // عدّاد المشاهدات — يُحتسب مرة واحدة لكل عرض في هذه الجلسة، وفقط للمستخدمين المسجّلين (لتوافق قواعد الأمان)
+  const viewedInSessionRef = useRef(new Set());
+  useEffect(() => {
+    if (!currentUser) return;
+    products.forEach(p => {
+      if (typeof p.id !== "string") return; // تجاهل عروض initialProducts التجريبية (أرقام ثابتة وليست مستندات Firestore)
+      if (viewedInSessionRef.current.has(p.id)) return;
+      if (p.ownerUid === currentUser.uid) return; // لا تحتسب مشاهدة صاحب العرض لعرضه نفسه
+      viewedInSessionRef.current.add(p.id);
+      updateDoc(doc(db, "products", p.id), { views: increment(1) }).catch(err => console.error("View increment failed:", err));
+    });
+  }, [products, currentUser]);
+
+  // فحص العروض التي مضى عليها أكثر من 14 يومًا دون تأكيد بقائها متاحة (لصاحبها فقط)
+  const isListingStale = (p) => {
+    const ts = p.lastConfirmedAt || p.createdAt;
+    if (!ts || !ts.seconds) return false;
+    return (Date.now() / 1000 - ts.seconds) / 86400 > 14;
+  };
+  useEffect(() => {
+    if (!currentUser) { setStaleListings([]); return; }
+    setStaleListings(products.filter(p => p.ownerUid === currentUser.uid && !p.sold && isListingStale(p)));
+  }, [products, currentUser]);
 
   // مزامنة قائمة المحادثات الخاصة بالمستخدم الحالي
   useEffect(() => {
@@ -780,6 +889,78 @@ export default function App() {
     }
   };
 
+  // ==================== البحث المحفوظ والتنبيهات المطابقة ====================
+
+  const saveCurrentSearch = async () => {
+    if (!currentUser) { openAuthModal(); return; }
+    try {
+      await addDoc(collection(db, "savedSearches"), {
+        userId: currentUser.uid,
+        keyword: searchQuery || "",
+        category: selectedCategory,
+        subcategory: selectedSubcategory,
+        country: countryFilter,
+        createdAt: serverTimestamp()
+      });
+      alert(t.searchSavedMsg);
+    } catch (err) {
+      console.error("Failed to save search:", err);
+    }
+  };
+
+  const deleteSavedSearch = async (searchId) => {
+    try {
+      await deleteDoc(doc(db, "savedSearches", searchId));
+    } catch (err) {
+      console.error("Failed to delete saved search:", err);
+    }
+  };
+
+  // عند نشر عرض جديد بنجاح، تحقق من البحوث المحفوظة المطابقة وأرسل إشعارًا لأصحابها (فيما عدا الناشر نفسه)
+  const notifyMatchingSavedSearches = async (newProduct, newProductId) => {
+    try {
+      const q = query(collection(db, "savedSearches"), where("category", "in", ["الكل", newProduct.category]));
+      const snap = await getDocs(q);
+      const matches = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(s =>
+          s.userId !== newProduct.ownerUid &&
+          (s.subcategory === "الكل" || s.subcategory === newProduct.subcategory) &&
+          (s.country === "كل الدول" || newProduct.location.includes(s.country)) &&
+          (!s.keyword || newProduct.title.toLowerCase().includes(s.keyword.toLowerCase()))
+        );
+      await Promise.all(matches.map(s => addDoc(collection(db, "notifications"), {
+        userId: s.userId,
+        type: "savedSearchMatch",
+        text: `${t.newMatchNotif} ${newProduct.title}`,
+        productId: newProductId,
+        read: false,
+        createdAt: serverTimestamp()
+      })));
+    } catch (err) {
+      console.error("Failed to notify saved searches:", err);
+    }
+  };
+
+  // ==================== تأكيد بقاء العرض متاحًا ====================
+
+  const confirmStillAvailable = async (product) => {
+    try {
+      await updateDoc(doc(db, "products", product.id), { lastConfirmedAt: serverTimestamp() });
+    } catch (err) {
+      console.error("Failed to confirm listing availability:", err);
+    }
+  };
+
+  // ==================== عرض السعر بالعملات الثلاث معًا ====================
+
+  const equivalentPriceLines = (price, fromCurrency) => {
+    const priceInUSD = price / exchangeRates[fromCurrency];
+    return Object.keys(exchangeRates)
+      .filter(code => code !== fromCurrency)
+      .map(code => `${Math.round(priceInUSD * exchangeRates[code]).toLocaleString()} ${currencyLabel(code, language)}`);
+  };
+
   // ==================== تحديد الموقع عبر GPS الجهاز (مجاني، بدون Google Maps API) ====================
 
   const handleUseMyLocation = () => {
@@ -906,7 +1087,8 @@ export default function App() {
       createdAt: serverTimestamp()
     };
     try {
-      await addDoc(collection(db, "products"), newProduct);
+      const createdRef = await addDoc(collection(db, "products"), newProduct);
+      notifyMatchingSavedSearches(newProduct, createdRef.id); // لا ننتظرها، تعمل في الخلفية
     } catch (err) {
       console.error("Failed to publish product:", err);
       alert(language === 'ar' ? "حدث خطأ أثناء نشر العرض، حاول مجددًا." : "Une erreur est survenue lors de la publication.");
@@ -971,6 +1153,15 @@ export default function App() {
           <button onClick={() => setSelectedCurrency("XAF")} style={{...styles.badge, backgroundColor: selectedCurrency === "XAF" ? "#FFF" : "#E9B824", color: "#000"}}>{currencyLabel("XAF", language)}</button>
           <button onClick={() => setSelectedCurrency("SDG")} style={{...styles.badge, backgroundColor: selectedCurrency === "SDG" ? "#FFF" : "#E9B824", color: "#000"}}>{currencyLabel("SDG", language)}</button>
         </div>
+        {ratesUpdatedAt && (
+          <p style={styles.ratesAttribution}>
+            {language === 'ar' ? 'أسعار الصرف محدّثة' : 'Taux de change mis à jour'} {new Date(ratesUpdatedAt).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'fr-FR')}
+            {" · "}
+            <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer" style={styles.ratesAttributionLink}>
+              Rates By Exchange Rate API
+            </a>
+          </p>
+        )}
       </header>
 
       {/* ==================== الإعلانات المموّلة (بنفس تصميم بطاقات الأقسام) ==================== */}
@@ -1080,6 +1271,19 @@ export default function App() {
         </button>
       </div>
 
+      <div style={styles.filterRow}>
+        <button onClick={saveCurrentSearch} style={styles.savedSearchActionBtn}>{t.saveSearchBtn}</button>
+        <button onClick={() => currentUser ? setIsSavedSearchesOpen(true) : openAuthModal()} style={styles.savedSearchActionBtn}>
+          {t.savedSearchesTitle} {savedSearches.length > 0 ? `(${savedSearches.length})` : ""}
+        </button>
+      </div>
+
+      {staleListings.length > 0 && (
+        <button onClick={() => setIsStaleModalOpen(true)} style={styles.staleBanner}>
+          <span>⏰ {staleListings.length} {language === 'ar' ? 'من عروضك تحتاج تأكيد حالتها' : 'de vos annonces nécessitent une confirmation'}</span>
+        </button>
+      )}
+
       <main style={styles.productList}>
         {filteredProducts.length === 0 ? (
           <p style={{textAlign:'center', color:'#777', marginTop:20}}>{t.noResults}</p>
@@ -1133,8 +1337,16 @@ export default function App() {
               <div style={styles.priceRow}>
                 <span style={styles.mainPrice}>{formatPrice(product.price, product.currency)} <small style={{fontSize:11, fontWeight:400, color:'#555'}}>({product.unit})</small></span>
               </div>
+              <p style={styles.equivalentPricesText}>
+                {t.equivalentPricesLabel} {equivalentPriceLines(product.price, product.currency).join(" · ")}
+              </p>
+              {currentUser && product.ownerUid === currentUser.uid && (
+                <p style={styles.viewsText}>👁️ {product.views || 0} {t.viewsLabel}</p>
+              )}
               <div style={styles.cardFooter}>
-                <span style={styles.sellerName}>{t.sellerPrefix} {product.seller}</span>
+                <button onClick={() => setViewingSeller({ ownerUid: product.ownerUid, seller: product.seller })} style={styles.sellerNameBtn}>
+                  {t.sellerPrefix} {product.seller}
+                </button>
                 <div style={{display: "flex", gap: "6px"}}>
                   <button onClick={() => handleContactSeller(product)} style={styles.chatBtn}>{t.contactSellerBtn}</button>
                   <a href={`tel:${product.contact}`} style={styles.contactBtn}>{t.callSellerBtn}</a>
@@ -1364,6 +1576,91 @@ export default function App() {
         </div>
       )}
 
+      {/* ==================== نافذة بحوثي المحفوظة ==================== */}
+      {isSavedSearchesOpen && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:18, color:'#16213A'}}>{t.savedSearchesTitle}</h2>
+              <button onClick={() => setIsSavedSearchesOpen(false)} style={styles.closeBtn}>❌</button>
+            </div>
+            {savedSearches.length === 0 ? (
+              <p style={{textAlign:'center', color:'#777', padding: '20px 0'}}>{t.noSavedSearches}</p>
+            ) : (
+              <div style={{display:'flex', flexDirection:'column', gap:'6px'}}>
+                {savedSearches.map(s => (
+                  <div key={s.id} style={styles.convListItem}>
+                    <span style={{fontSize:13, color:'#16213A'}}>
+                      {t.savedSearchSummary}: {displayCategory(s.category)}
+                      {s.subcategory !== "الكل" ? ` · ${displaySubcategory(s.subcategory, language)}` : ""}
+                      {s.country !== "كل الدول" ? ` · ${displayCountry(s.country)}` : ""}
+                      {s.keyword ? ` · "${s.keyword}"` : ""}
+                    </span>
+                    <button onClick={() => deleteSavedSearch(s.id)} style={{...styles.secondaryActionBtn, flex: "none", padding: "4px 10px"}}>{t.removeSavedSearch}</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== نافذة متجر التاجر (عروضه الأخرى) ==================== */}
+      {viewingSeller && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:16, color:'#16213A'}}>{viewingSeller.seller} — {t.sellerProfileTitle}</h2>
+              <button onClick={() => setViewingSeller(null)} style={styles.closeBtn}>❌</button>
+            </div>
+            {(() => {
+              const sellerListings = products.filter(p =>
+                !p.sold &&
+                (viewingSeller.ownerUid ? p.ownerUid === viewingSeller.ownerUid : p.seller === viewingSeller.seller)
+              );
+              return sellerListings.length === 0 ? (
+                <p style={{textAlign:'center', color:'#777', padding: '20px 0'}}>{t.noSellerListings}</p>
+              ) : (
+                <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
+                  {sellerListings.map(p => (
+                    <div key={p.id} style={styles.convListItem}>
+                      <div style={{display:'flex', flexDirection:'column', alignItems:'flex-start'}}>
+                        <strong style={{fontSize:13, color:'#16213A'}}>{p.title}</strong>
+                        <span style={{fontSize:12, color:'#777'}}>{formatPrice(p.price, p.currency)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== نافذة مراجعة العروض القديمة (14+ يومًا) ==================== */}
+      {isStaleModalOpen && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h2 style={{margin:0, fontSize:16, color:'#16213A'}}>{t.stillAvailableTitle}</h2>
+              <button onClick={() => setIsStaleModalOpen(false)} style={styles.closeBtn}>❌</button>
+            </div>
+            <p style={{fontSize:13, color:'#555', margin:'4px 0 10px'}}>{t.stillAvailableDesc}</p>
+            <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+              {staleListings.map(p => (
+                <div key={p.id} style={{border:'1px solid #eee', borderRadius:'8px', padding:'10px'}}>
+                  <strong style={{fontSize:13, color:'#16213A', display:'block', marginBottom:'8px'}}>{p.title}</strong>
+                  <div style={{display:'flex', gap:'6px'}}>
+                    <button onClick={() => confirmStillAvailable(p)} style={{...styles.ownerActionBtn, backgroundColor:'#E8F5E9'}}>{t.stillAvailableYes}</button>
+                    <button onClick={() => toggleSoldStatus(p)} style={{...styles.ownerActionBtn, color:'#C84B31', borderColor:'#C84B31'}}>{t.stillAvailableSold}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ==================== نافذة إضافة عرض ==================== */}
       {isModalOpen && (
         <div style={styles.overlay}>
@@ -1540,6 +1837,8 @@ const styles = {
   authBarText: { fontSize: "12px", color: "#d9cba3" },
   authBarBtn: { background: "#E9B824", color: "#16213A", border: "none", padding: "5px 14px", borderRadius: "16px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
   currencyBar: { display: "flex", gap: "6px", justifyContent: "center", alignItems: "center" },
+  ratesAttribution: { fontSize: "10px", color: "rgba(255,255,255,0.6)", textAlign: "center", marginTop: "8px", marginBottom: 0 },
+  ratesAttributionLink: { color: "rgba(255,255,255,0.75)" },
   badge: { border: "none", padding: "5px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" },
   catToggleRow: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "nowrap", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "6px" },
   catToggleBtn: { flexShrink: 0, display: "flex", alignItems: "center", gap: "6px", border: "1px solid #d9cba3", borderRadius: 8, padding: "8px 16px", fontSize: 13.5, fontWeight: 600 },
@@ -1547,6 +1846,8 @@ const styles = {
   filterRow: { display: "flex", gap: "8px", marginBottom: "14px" },
   select: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#fff", fontSize: "14px" },
   favToggleBtn: { flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #C84B31", fontSize: "13px", fontWeight: "bold", cursor: "pointer" },
+  savedSearchActionBtn: { flex: 1, padding: "9px", borderRadius: "8px", border: "1px solid #16213A", backgroundColor: "#fff", color: "#16213A", fontSize: "12.5px", fontWeight: "bold", cursor: "pointer" },
+  staleBanner: { width: "100%", display: "block", backgroundColor: "#FFF3CD", border: "1px solid #E9B824", borderRadius: "8px", padding: "10px", fontSize: "13px", color: "#7A5B00", textAlign: "center", marginBottom: "14px", cursor: "pointer" },
   input: { flex: 2, padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "14px", width: "100%", boxSizing: "border-box" },
   searchWrap: { position: "relative", flex: 2, display: "flex", alignItems: "center" },
   searchIcon: { position: "absolute", fontSize: "14px", opacity: 0.6, pointerEvents: "none" },
@@ -1573,6 +1874,9 @@ const styles = {
   ownerActionsRow: { display: "flex", gap: "6px", marginTop: "6px" },
   ownerActionBtn: { flex: 1, backgroundColor: "#F5EFE6", border: "1px solid #d9cba3", borderRadius: "6px", padding: "6px", fontSize: "11.5px", fontWeight: "bold", color: "#16213A", cursor: "pointer" },
   sellerName: { fontSize: "13px", fontWeight: "bold", color: "#555" },
+  sellerNameBtn: { fontSize: "13px", fontWeight: "bold", color: "#555", background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" },
+  equivalentPricesText: { fontSize: "11px", color: "#888", margin: "2px 0 8px" },
+  viewsText: { fontSize: "11px", color: "#888", margin: "0 0 6px" },
   contactBtn: { backgroundColor: "#54B435", color: "#fff", textDecoration: 'none', padding: "6px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold" },
   fab: { position: "fixed", bottom: "20px", left: "20px", right: "20px", backgroundColor: "#A64B2A", color: "#fff", border: "none", padding: "14px", borderRadius: "30px", fontSize: "15px", fontWeight: "bold", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", zIndex: 90, cursor: 'pointer', textAlign: 'center' },
   overlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, padding: "12px" },
