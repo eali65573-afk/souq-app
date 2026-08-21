@@ -80,6 +80,7 @@ const translations = {
     labelSubcategory: "التصنيف الفرعي",
     subAll: "الكل",
     sponsoredTitle: "إعلانات مموّلة",
+    financialServicesTitle: "خدمات التحويل المالي",
 
     // === مميزات إضافية ===
     favoritesTitle: "المفضلة",
@@ -221,6 +222,7 @@ const translations = {
     labelSubcategory: "Sous-catégorie",
     subAll: "Toutes",
     sponsoredTitle: "Annonces sponsorisées",
+    financialServicesTitle: "Services de transfert d'argent",
 
     // === Fonctionnalités supplémentaires ===
     favoritesTitle: "Favoris",
@@ -1178,22 +1180,28 @@ export default function App() {
         )}
       </header>
 
-      {/* ==================== الإعلانات المموّلة (بنفس تصميم بطاقات الأقسام) ==================== */}
-      {sponsoredAds.length > 0 && (
+      {/* ==================== قسم خدمات التحويل المالي (منفصل بصريًا، يظهر أولًا) ==================== */}
+      {sponsoredAds.some(ad => ad.category === "financial") && (
+        <div style={styles.finServicesWrap}>
+          <h3 style={styles.finServicesTitle}>{t.financialServicesTitle}</h3>
+          <div style={styles.finServicesRow}>
+            {sponsoredAds.filter(ad => ad.category === "financial").map(ad => (
+              <button key={ad.id} onClick={() => setFinancialDisclaimerAd(ad)} style={styles.finServiceCard}>
+                <span style={styles.financialBadge}>{t.financialServiceBadge}</span>
+                <img src={ad.imageUrl} alt={ad.title || ""} style={styles.finServiceImg} />
+                <span style={styles.finServiceLabel}>{ad.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== الإعلانات المموّلة العادية (سلع/منتجات فقط) ==================== */}
+      {sponsoredAds.some(ad => ad.category !== "financial") && (
         <div style={{marginBottom: "14px"}}>
           <h3 style={styles.sponsoredTitle}>{t.sponsoredTitle}</h3>
           <div style={styles.sponsoredRow}>
-            {sponsoredAds.map(ad => {
-              const isFinancial = ad.category === "financial";
-              if (isFinancial) {
-                return (
-                  <button key={ad.id} onClick={() => setFinancialDisclaimerAd(ad)} style={{...styles.sponsoredCard, position: "relative", border: "1px solid #E9B824"}}>
-                    <span style={styles.financialBadge}>{t.financialServiceBadge}</span>
-                    <img src={ad.imageUrl} alt={ad.title || ""} style={styles.sponsoredImg} />
-                    <span style={styles.sponsoredLabel}>{ad.title}</span>
-                  </button>
-                );
-              }
+            {sponsoredAds.filter(ad => ad.category !== "financial").map(ad => {
               const CardTag = ad.linkUrl ? "a" : "div";
               const linkProps = ad.linkUrl ? { href: ad.linkUrl, target: "_blank", rel: "noopener noreferrer" } : {};
               return (
@@ -1966,6 +1974,22 @@ const styles = {
   sponsoredImg: { width: "94px", height: "70px", objectFit: "cover", borderRadius: "10px", backgroundColor: "#F5EFE6" },
   sponsoredLabel: { fontSize: "12px", fontWeight: 600, color: "#16213A", textAlign: "center", lineHeight: "1.3" },
   financialBadge: { position: "absolute", top: "-6px", insetInlineStart: "-4px", backgroundColor: "#E9B824", color: "#16213A", fontSize: "8.5px", fontWeight: "bold", padding: "2px 5px", borderRadius: "5px", lineHeight: 1.3 },
+
+  // ==== قسم خدمات التحويل المالي (منفصل عن إعلانات السلع) ====
+  finServicesWrap: {
+    marginBottom: "14px", padding: "10px 12px 12px", borderRadius: "14px",
+    backgroundColor: "#16213A", border: "1.5px solid #E9B824"
+  },
+  finServicesTitle: { fontSize: "13px", fontWeight: "bold", color: "#E9B824", margin: "0 0 8px 0" },
+  finServicesRow: { display: "flex", gap: "10px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" },
+  finServiceCard: {
+    flexShrink: 0, width: "150px", backgroundColor: "#fff", borderRadius: "12px",
+    border: "2px solid #E9B824", boxShadow: "0 2px 4px rgba(0,0,0,0.15)",
+    padding: "8px", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+    cursor: "pointer", position: "relative"
+  },
+  finServiceImg: { width: "134px", height: "64px", objectFit: "cover", borderRadius: "8px", backgroundColor: "#F5EFE6" },
+  finServiceLabel: { fontSize: "12px", fontWeight: 600, color: "#16213A", textAlign: "center", lineHeight: "1.3" },
 
   // ==== أزرار المراسلة والاتصال على بطاقة المنتج ====
   chatBtn: { backgroundColor: "#16213A", color: "#fff", border: "none", padding: "6px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" },
